@@ -18,6 +18,7 @@ from ...kmeans_utils import (
 )
 from ...flashinfer_patch import flashinfer_patch_enabled
 from ...logger import logger
+from ...maskgen_export import get_wan_sap_linear_step, maybe_export_attention_core_inputs
 from ...timer import time_logging_decorator
 from ...utils.misc import Color
 from .placement import (
@@ -735,6 +736,18 @@ class Hunyuan_SAPAttn_Processor2_0(Hunyuan_SVGAttn_Processor2_0):
             full_attention_flag = True
         if timestep[0] > self.first_times_fp:
             full_attention_flag = True
+
+        linear_step = get_wan_sap_linear_step(timestep)
+        maybe_export_attention_core_inputs(
+            self,
+            query,
+            key,
+            value,
+            timestep=timestep,
+            linear_step=linear_step,
+            full_attention_flag=full_attention_flag,
+            model_type="hunyuan",
+        )
 
         if full_attention_flag:
             if self.zero_step_kmeans_init:

@@ -683,7 +683,7 @@ except Exception:  # pragma: no cover
 
 
 @time_logging_decorator("Level 4 - batch kmeans euclid")
-def batch_kmeans_Euclid(x, n_clusters, max_iters=100, tol=1e-4, init_centroids=None, verbose=False):
+def batch_kmeans_Euclid(x, n_clusters, max_iters=100, tol=1e-4, init_centroids=None, verbose=False, row_seeds=None):
     """
     Batched KMeans clustering in PyTorch using Euclidean distance.
 
@@ -693,6 +693,12 @@ def batch_kmeans_Euclid(x, n_clusters, max_iters=100, tol=1e-4, init_centroids=N
         max_iters: Max number of iterations.
         tol: Relative tolerance for center movement.
         verbose: Print loss for each iter.
+        row_seeds: optional per-row (per-head) int seeds. When given, each row's
+            initial centroids are drawn from a generator seeded by row_seeds[b],
+            so the init is INVARIANT to how rows (heads) are distributed across
+            ranks. This makes the whole sparse pipeline deterministic AND
+            placement-invariant (AsymHP output == baseline output bit-for-bit),
+            instead of order-dependent global-RNG init.
     Returns:
         cluster_ids: (B, N) LongTensor, cluster assignment for each point.
         centroids: (B, n_clusters, D) final cluster centers.
@@ -705,8 +711,19 @@ def batch_kmeans_Euclid(x, n_clusters, max_iters=100, tol=1e-4, init_centroids=N
     x_sq = (x**2).sum(dim=-1)  # (B, N)
 
     if init_centroids is None:
-        # Randomly select initial centers from x
-        indices = torch.randint(0, N, (B, n_clusters), device=x.device)
+        if row_seeds is not None:
+            # Per-head deterministic init: head H always seeds from the same
+            # token positions regardless of which rank computes it. Use CPU
+            # generators (robustly reproducible; CUDA per-generator randint is
+            # not) and move the small index tensor to the device.
+            rows = []
+            for b in range(B):
+                g = torch.Generator().manual_seed(int(row_seeds[b]))
+                rows.append(torch.randint(0, N, (n_clusters,), generator=g))
+            indices = torch.stack(rows, dim=0).to(x.device)
+        else:
+            # Randomly select initial centers from x (order-dependent global RNG)
+            indices = torch.randint(0, N, (B, n_clusters), device=x.device)
         centroids = torch.gather(x, dim=1, index=indices[..., None].expand(-1, -1, D))  # (B, n_clusters, D)
     else:
         # centroids = init_centroids.clone()

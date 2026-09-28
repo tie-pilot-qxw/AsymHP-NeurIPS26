@@ -1,3 +1,4 @@
+import os
 import json
 import sys
 import warnings
@@ -22,6 +23,11 @@ from ...kmeans_utils import (
     identify_dynamic_map,
 )
 from ...logger import logger
+from ...maskgen_export import (
+    get_wan_sap_linear_step,
+    maybe_export_wan_attention_core_inputs,
+    maybe_export_wan_semantic_aware_permutation_inputs,
+)
 from ...timer import time_logging_decorator
 from ...utils.misc import Color
 from .placement import (
@@ -292,9 +298,14 @@ class WanAttn_SVGAttn_Processor2_0:
 
         context_length, num_frame, frame_size = self.context_length, self.num_frame, self.frame_size
 
+        # >= (not ==): the asymmetric-a2a path pads the sequence to a multiple of
+        # (128*W) for the TMA pull/push kernels (e.g. 14B-720p W=8: 115200->115712).
+        # Trailing pad tokens flow through sparse attention and are trimmed by the
+        # SP forward; the warmup path still uses real num_frame*frame_size to
+        # exclude the pad from k-means.
         assert (
-            seq_len == context_length + num_frame * frame_size
-        ), f"Query Shape: {seq_len} is not equivalent to {context_length} + {num_frame} * {frame_size}"
+            seq_len >= context_length + num_frame * frame_size
+        ), f"Query Shape: {seq_len} < real length {context_length} + {num_frame} * {frame_size}"
 
         # Determine if we use Full Attention to calculate
         full_attention_flag = False
@@ -393,14 +404,50 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
 
     logging_file = None
 
+    def _profile_local_phase(self, _name, fn):
+        """Optional SP-runtime phase hook; single-GPU execution stays unchanged."""
+        return fn()
+
+    def _record_sparse_call(self, _is_sparse):
+        """Optional SP-runtime call-kind hook used to align phase-event streams."""
+        return None
+
+    def _row_seeds(self, layer_idx, cfg, num_heads, qk_off):
+        """Per-head init seeds keyed by GLOBAL head id, so head H's kmeans init
+        is identical no matter which rank computes it. Makes the sparse pipeline
+        deterministic AND placement-invariant (AsymHP output == baseline output
+        bit-for-bit). Falls back to local head order for single-card runs."""
+        heads = getattr(self, "_my_heads", None)
+        if heads is None:
+            heads = list(range(num_heads))
+        nhg = getattr(self, "_num_heads_global", None) or num_heads
+        return [((int(layer_idx) * int(nhg) + int(heads[b % num_heads])) * 4 + qk_off) & 0x7FFFFFFF
+                for b in range(cfg * num_heads)]
+
     @time_logging_decorator("Level 3.7 - kmeans init")
     def kmeans_init(self, query, key, layer_idx):
         cfg, num_heads, seq_len, dim = query.size()
+        # Per-head deterministic init (row_seeds) keyed by GLOBAL head id makes
+        # the masks placement-invariant: head H gets the same k-means init no
+        # matter which rank owns it, so AsymHP's non-uniform placement produces
+        # the same masks/output as the uniform baseline (modulo the backend's
+        # atomic-reduction noise, which the baseline has too). We enable it
+        # automatically whenever we're on the head-parallel SP path (`_my_heads`
+        # is set only by the multi-rank SP processor) -- otherwise placement
+        # would silently change the masks. `SVG_DETERMINISTIC_KMEANS=1` forces it
+        # on for single-card runs too. Single-card default is unchanged (order-
+        # dependent global RNG).
+        _sp_placement = getattr(self, "_my_heads", None) is not None
+        _use_seeds = _sp_placement or os.environ.get("SVG_DETERMINISTIC_KMEANS") == "1"
+        qs = self._row_seeds(layer_idx, cfg, num_heads, 0) if _use_seeds else None
+        ks = self._row_seeds(layer_idx, cfg, num_heads, 1) if _use_seeds else None
         qlabels, qcentroids, qcluster_sizes, qiter = batch_kmeans_Euclid(
-            query.view(cfg * num_heads, seq_len, dim), n_clusters=self.num_q_centroids, max_iters=self.kmeans_iter_init
+            query.view(cfg * num_heads, seq_len, dim), n_clusters=self.num_q_centroids,
+            max_iters=self.kmeans_iter_init, row_seeds=qs,
         )
         klabels, kcentroids, kcluster_sizes, kiter = batch_kmeans_Euclid(
-            key.view(cfg * num_heads, seq_len, dim), n_clusters=self.num_k_centroids, max_iters=self.kmeans_iter_init
+            key.view(cfg * num_heads, seq_len, dim), n_clusters=self.num_k_centroids,
+            max_iters=self.kmeans_iter_init, row_seeds=ks,
         )
 
         self.q_centroids = qcentroids
@@ -431,12 +478,18 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
 
     @time_logging_decorator("Level 3.5 - kmeans clustering")
     def kmeans_clustering(self, query, key, layer_idx):
-        if not self.centroids_init:
+        cfg, num_heads, _seq, _dim = query.size()
+        # The cached centroids are indexed by (cfg*num_heads) rows. Under the
+        # online causal scheduler a rank's head COUNT can change between steps
+        # (variable LPT placement), which would make kmeans_step reshape the new
+        # heads against a stale cache. Detect the mismatch and re-init those
+        # heads' centroids fresh (rare once the density profile stabilizes).
+        stale_cache = (self.q_centroids is None) or (self.q_centroids.shape[0] != cfg * num_heads)
+        if (not self.centroids_init) or stale_cache:
             qlabels, qcentroids, qcluster_sizes, qiter, klabels, kcentroids, kcluster_sizes, kiter = self.kmeans_init(
                 query, key, layer_idx
             )
             self.centroids_init = True
-            print(f"Centroids initialized at layer {layer_idx}. Init step: {self.kmeans_iter_init}")
         else:
             qlabels, qcentroids, qcluster_sizes, qiter, klabels, kcentroids, kcluster_sizes, kiter = self.kmeans_step(
                 query, key, layer_idx
@@ -445,8 +498,11 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
         return qlabels, qcentroids, qcluster_sizes, qiter, klabels, kcentroids, kcluster_sizes, kiter
 
     @time_logging_decorator("Level 3 - semantic aware permutation")
-    def semantic_aware_permutation(self, query, key, value):
+    def semantic_aware_permutation(self, query, key, value, timestep=None, linear_step=None):
         cfg, num_heads, seq_len, dim = query.size()
+        maybe_export_wan_semantic_aware_permutation_inputs(
+            self, query, key, value, timestep=timestep, linear_step=linear_step
+        )
 
         # 1. Kmeans clustering
         qlabels, qcentroids, qcluster_sizes, qiter, klabels, kcentroids, kcluster_sizes, kiter = self.kmeans_clustering(
@@ -500,12 +556,18 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
     def attention_core_logic(self, query, key, value, timestep):
         cfg, num_heads, seq_len, dim = query.size()
         assert cfg == 1, "Batch size must be 1 for kmeans block sparse attention"
+        linear_step = get_wan_sap_linear_step(timestep)
 
         context_length, num_frame, frame_size = self.context_length, self.num_frame, self.frame_size
 
+        # >= (not ==): the asymmetric-a2a path pads the sequence to a multiple of
+        # (128*W) for the TMA pull/push kernels (e.g. 14B-720p W=8: 115200->115712).
+        # Trailing pad tokens flow through sparse attention and are trimmed by the
+        # SP forward; the warmup path still uses real num_frame*frame_size to
+        # exclude the pad from k-means.
         assert (
-            seq_len == context_length + num_frame * frame_size
-        ), f"Query Shape: {seq_len} is not equivalent to {context_length} + {num_frame} * {frame_size}"
+            seq_len >= context_length + num_frame * frame_size
+        ), f"Query Shape: {seq_len} < real length {context_length} + {num_frame} * {frame_size}"
 
         # Determine if we use Full Attention to calculate
         full_attention_flag = False
@@ -515,7 +577,18 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
         if timestep[0] > self.first_times_fp:
             full_attention_flag = True
 
+        maybe_export_wan_attention_core_inputs(
+            self,
+            query,
+            key,
+            value,
+            timestep=timestep,
+            linear_step=linear_step,
+            full_attention_flag=full_attention_flag,
+        )
+
         if full_attention_flag:
+            self._record_sparse_call(False)
             if self.zero_step_kmeans_init:
                 video_length = self.num_frame * self.frame_size
                 query_video = query[:, :, :video_length, :].contiguous()
@@ -524,25 +597,44 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
 
             output_hidden_states = self.flash_attention(query, key, value)
             # output_hidden_states = self.flashinfer_attention(query, key, value)
+            # Dense warmup step: every head is fully dense -> uniform per-head
+            # density, so the online scheduler places heads uniformly.
+            self._last_density = None
             return output_hidden_states.reshape(cfg, num_heads, seq_len, dim)
 
         else:
-            q_perm, k_perm, v_perm, dyn_map, qc_sz_s, kc_sz_s, q_sorted_indices = self.semantic_aware_permutation(
-                query, key, value
+            self._record_sparse_call(True)
+            q_perm, k_perm, v_perm, dyn_map, qc_sz_s, kc_sz_s, q_sorted_indices = self._profile_local_phase(
+                "mask",
+                lambda: self.semantic_aware_permutation(
+                    query, key, value, timestep=timestep, linear_step=linear_step
+                ),
             )
 
-            output_permuted = dynamic_block_sparse_fwd_flashinfer(
-                q_perm, k_perm, v_perm, dyn_map, qc_sz_s, kc_sz_s, is_cpu=False
+            output_permuted = self._profile_local_phase(
+                "sparse_kernel",
+                lambda: dynamic_block_sparse_fwd_flashinfer(
+                    q_perm, k_perm, v_perm, dyn_map, qc_sz_s, kc_sz_s, is_cpu=False
+                ),
             )
 
-            attn_output = apply_inverse_permutation_triton(output_permuted, q_sorted_indices, dim=2)
+            attn_output = self._profile_local_phase(
+                "inverse_permute",
+                lambda: apply_inverse_permutation_triton(output_permuted, q_sorted_indices, dim=2),
+            )
+
+            # Per-head density (cheap reduce over the block map). Stash it so the
+            # SP online scheduler can read *this* step's realized density and
+            # place heads for the *next* step (causal one-step-lag predictor).
+            densities = self._profile_local_phase(
+                "density",
+                lambda: density_calculation(dyn_map, qc_sz_s, kc_sz_s),
+            )
+            self._last_density = densities
 
             # Save time, layer, density information to logging file
             if self.logging_file is not None:
                 with time_logging_decorator("Level 3 - density calculation and logging"):
-                    # 4. Calculate density
-                    densities = density_calculation(dyn_map, qc_sz_s, kc_sz_s)
-
                     avg_density = densities.mean().item()
                     log_entry = {
                         "timestep": timestep[0].item(),
@@ -557,3 +649,74 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
                         f.write(json.dumps(log_entry) + "\n")
 
             return attn_output.reshape(cfg, num_heads, seq_len, dim)
+
+
+class WanAttn_SpargeAttn_Processor(WanAttn_SAPAttn_Processor):
+    """The REAL SpargeAttn (thu-ml/SpargeAttn) as the local per-head sparse
+    method, for the second-method generality study.
+
+    SpargeAttn is a training-free, quantized block-sparse attention whose per-head
+    block map is chosen online by a mean-similarity pre-filter (``simthreshd1``)
+    plus a CDF/top-p threshold (``cdfthreshd``) -- a genuinely different, published
+    method from SAP's k-means + permutation. We read its per-head density straight
+    from SpargeAttn's own block map, so it feeds AsymHP's placement identically.
+    Requires the ``spas_sage_attn`` package (built from source: thu-ml/SpargeAttn);
+    imported lazily so the rest of the repo works without it.
+    """
+
+    simthreshd1 = 0.6
+    cdfthreshd = 0.98
+    pvthreshd = 50
+
+    @time_logging_decorator("Level 2 - attention core logic")
+    def attention_core_logic(self, query, key, value, timestep):
+        cfg, num_heads, seq_len, dim = query.size()
+        # Same dense-warmup gate as SAP.
+        full_attention_flag = False
+        if self.layer_idx < self.first_layers_fp:
+            full_attention_flag = True
+        if timestep[0] > self.first_times_fp:
+            full_attention_flag = True
+        if full_attention_flag:
+            self._record_sparse_call(False)
+            return self.flash_attention(query, key, value).reshape(cfg, num_heads, seq_len, dim)
+
+        from spas_sage_attn import spas_sage2_attn_meansim_cuda
+
+        # HND layout == [batch, head, seq, dim] == our [cfg, num_heads, seq_len, dim].
+        # The small Sparge API patch in lb/patches returns per-head density from
+        # the already-built valid_block_num metadata.  This avoids recomputing
+        # Sparge's full block map solely for the online scheduler.
+        self._record_sparse_call(True)
+        want_density = self.logging_file is not None or getattr(self, "_want_density", False)
+        result = self._profile_local_phase(
+            "sparse_kernel",
+            lambda: spas_sage2_attn_meansim_cuda(
+                query, key, value,
+                is_causal=False, scale=None, smooth_k=True,
+                simthreshd1=self.simthreshd1, cdfthreshd=self.cdfthreshd, pvthreshd=self.pvthreshd,
+                tensor_layout="HND", output_dtype=query.dtype,
+                return_head_density=want_density,
+            ),
+        )
+
+        # Per-head density is a reduction of the block counts the real Sparge
+        # kernel just consumed; no second mask-construction pass is performed.
+        self._last_density = None
+        if want_density:
+            out, dens = result
+            self._last_density = dens
+            with time_logging_decorator("Level 3 - density calculation and logging"):
+                if self.logging_file is not None:
+                    log_entry = {
+                        "timestep": timestep[0].item(),
+                        "layer": self.layer_idx,
+                        "avg_density": dens.mean().item(),
+                        "density": dens.tolist(),
+                    }
+                    with open(self.logging_file, "a") as f:
+                        f.write(json.dumps(log_entry) + "\n")
+        else:
+            out = result
+
+        return out.reshape(cfg, num_heads, seq_len, dim)

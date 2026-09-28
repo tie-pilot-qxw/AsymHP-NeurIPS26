@@ -1,195 +1,182 @@
-<div align="center" id="sglangtop">
-  <img src="assets/Minimal_dark_white_background.png" alt="logo" width="400" margin="10px"></img>
-</div>
-<h3 align="center">
-Accelerate Video Generation with High Pixel-level Fidelity
-</h3>
+# AsymHP: Load-Balanced Sparse Attention for Video Diffusion Transformers
 
-<p align="center">
-| <a href="https://svg-project.github.io/"><b>Website</b></a> | <a href="https://arxiv.org/abs/2502.01776"><b>SVG 1 Paper</b></a> | <a href="https://arxiv.org/abs/2505.18875"><b>SVG2 Paper</b></a> | <a href="https://x.com/HaochengXiUCB/status/1899953252327927911"><b>SVG 1 Twitter/X</b></a> | <a href="https://x.com/HaochengXiUCB/status/1971219731140182423"><b>SVG 2 Twitter/X</b></a> |
-</p>
+Code for the NeurIPS 2026 paper *AsymHP: Load-Balanced Sparse Attention for
+Video Diffusion Transformers*.
 
-## 🔥News🔥
-- [2025/09] We release [Flash k-Means](https://github.com/svg-project/flash-kmeans), a batched K-Means clustering algorithm implemented with Triton that offers >10x speedup!
-- [2025/09] [Sparse VideoGen2](https://arxiv.org/abs/2505.18875) is open-sourced! HunyuanVideo, Wan 2.1 and Cosmos can be accelerated by 2×
-- [2025/09] Sparse VideoGen2 is accepted by NeurIPS 2025 as a **spotlight**!
-- [2025/05] [Sparse VideoGen](https://arxiv.org/abs/2502.01776) is accepted by ICML 2025!
-- [2025/04] Wan 2.1 is supported! Both T2V and I2V are accelerated.
-- [2025/03] Sparse VideoGen is open-sourced! HunyuanVideo and CogVideoX v1.5 can be accelerated by 2×
+Dynamic sparse attention (top-p or threshold rules) retains very different
+numbers of blocks per attention head, so equal-head parallel execution leaves
+GPUs waiting for the ones that received dense heads. AsymHP predicts each
+head's cost from the previous denoising step's per-head density, assigns a
+non-uniform number of heads to each GPU, and moves only the required head
+shards with an asymmetric pull–push exchange. The sparse masks and local
+kernels are unchanged.
 
-## 📚 About
-Sparse VideoGen 1 & 2 are **training-free frameworks** that leverage **inherent sparsity** in the 3D Full Attention operations to accelerate video generation. 
+This repository builds on
+[Sparse VideoGen / Sparse VideoGen2](https://github.com/svg-project/Sparse-VideoGen)
+(Apache-2.0), which provides the SVG2 sparse-attention backend under `svg/`.
+The AsymHP contribution lives in `lb/`.
 
-Sparse VideoGen 1's core contributions:
- - Identifying the **spatial and temporal sparsity patterns** in video diffusion models.
- - Proposing an **Online Profiling Strategy** to dynamically identify these patterns.
- - Implementing an end-to-end generation framework through **efficient algorithm-system co-design**, with **hardware-efficient layout transformation** and **customized kernels**.
+## Repository layout
 
-Sparse VideoGen 2's core contributions:
- - Tackles **inaccurate token identification** and **computation waste** in video diffusion.
- - Introduces **semantic-aware** sparse attention with efficient **token permutation**.
- - Provides an end-to-end system design with a **dynamic attention** kernel and **flash k-means** kernel.
+| Path | Contents |
+|---|---|
+| `lb/` | AsymHP: planner (`split_planner.py`, `predict_balance.py`), asymmetric exchange (`symm_a2a.py`, `asymm_pull_kernel.py`), operator benchmark (`bench_sp_all2all_attention.py`), cost-model profiling, experiment and analysis scripts, tests. |
+| `lb/wan_sp/` | Sequence-parallel AsymHP integration into the Wan2.1 denoising loop, used by `wan_t2v_sp_inference.py` for end-to-end runs. |
+| `wan_t2v_sp_inference.py` | Multi-GPU end-to-end Wan2.1 generation with equal-head or AsymHP execution. |
+| `svg/`, `*_inference.py`, `scripts/`, `examples/` | Upstream SVG2 backend, model adapters, single-GPU drivers, and prompts (small SVG2 changes: Wan attention export, placement-invariant k-means seeding). |
+| `result/*/maskgen_aware_cost.json` | Fitted H100 cost models for Wan2.1-1.3B, Wan2.1-14B, and HunyuanVideo. |
+| `data/traces/` | Recorded per-head density traces for the GPU-free analyses. |
+| `artifacts/l40s_w4_wan21_13b_720p_121f/` | Measured evidence for the PCIe-only L40S study. |
 
-## 🎥 Demo of SVG1
-<div style="display: flex; gap: 10px;">
-    <img src="assets/video/SparseVideoGenDemo.gif" style="width: 100%;"/>
-    <img src="assets/video/Algorithm.gif" style="width: 100%;"/>
-</div>
+## Setup
 
-## 🎥 Demo of SVG2
-<table border="0" style="width: 100%; text-align: center;">
-  <tr>
-    <td>
-      <video src="https://github.com/user-attachments/assets/ca4801bb-a94a-4f34-8c67-f63d080536b7"
-             width="100%" autoplay loop muted playsinline controls></video>
-    </td>
-    <td>
-      <video src="https://github.com/user-attachments/assets/a030f7f2-6048-4268-b984-ef5027c577d8"
-             width="100%" autoplay loop muted playsinline controls></video>
-    </td>
-    <td>
-      <video src="https://github.com/user-attachments/assets/acd186f3-828d-40af-a635-9abbe9fb7962"
-             width="100%" autoplay loop muted playsinline controls></video>
-    </td>
-  </tr>
-</table>
+We ran all experiments on H100 GPUs with CUDA 12.9, PyTorch 2.9.1, NCCL 2.27.5,
+FlashInfer 0.5.3, diffusers 0.34.0, and transformers 4.57.1. The asymmetric
+exchange uses PyTorch symmetric memory and TMA and requires Hopper (sm_90) for
+the default path; pre-Hopper GPUs automatically use a PCIe copy backend.
 
+The simplest environment is an NGC PyTorch container, e.g.
+`nvcr.io/nvidia/pytorch:25.06-py3`:
 
-
-## 🛠️ Installation
-Begin by cloning the repository:
 ```bash
-GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/svg-project/Sparse-VideoGen.git # Do not clone the demo, otherwise is too large
-cd Sparse-VideoGen
+git clone --recursive <this repository> asymhp && cd asymhp
+python -m venv --system-site-packages .venv && source .venv/bin/activate
+pip install -e . --no-deps
+pip install diffusers==0.34.0 transformers==4.57.1 accelerate \
+            flashinfer-python==0.5.3 cuvs-cu12 einops av loguru termcolor
+( cd svg/kernels && bash setup.sh )   # SVG2 CUDA/Triton kernels
 ```
 
-We recommend using CUDA versions 12.4 / 12.8 + PyTorch versions 2.5.1 / 2.6.0
+Outside NGC, install `torch==2.9.1+cu129` and `flash-attn` first.
+`lb/requirements-freeze.txt` lists the full package set of our container.
+
+**SpargeAttn (only for the second-method experiment).** Build
+[SpargeAttn](https://github.com/thu-ml/SpargeAttn) from source with our small
+patch, which exposes per-head valid-block counts (`return_head_density=True`):
+
 ```bash
-# 1. Create and activate conda environment
-conda create -n SVG python==3.12.9 # or 3.11.9 if have error when installing kernels
-conda activate SVG
-
-# 2. Install uv, then install other packages
-pip install uv
-uv pip install -e .
-
-pip install flash-attn --no-build-isolation
-
-# 4. Install customized kernels. (You might need to upgrade your cmake and CUDA version.)
-pip install -U setuptools # Require at least version 77.0.0
-git submodule update --init --recursive
-cd svg/kernels
-pip install -U cmake
-bash setup.sh
-
-# 5. Install FlashInfer (standard) and cuVS
-cd 3rdparty/flashinfer
-pip install --no-build-isolation --verbose --editable .
-pip install cuvs-cu12 --extra-index-url=https://pypi.nvidia.com
-
-# Optional: If the FlashInfer monkey patch fails in your environment,
-# install the manually patched FlashInfer (block sparse with varied block sizes).
-cd 3rdparty/flashinfer
-cp ../../../../assets/patches/modifications.patch ./
-git apply modifications.patch
-pip install --no-build-isolation --verbose --editable . # Block Sparse Attention with varied block sizes
+git clone https://github.com/thu-ml/SpargeAttn.git && cd SpargeAttn
+git apply <asymhp>/lb/patches/sparge_per_head_density.patch
+TORCH_CUDA_ARCH_LIST=9.0 pip install -e . --no-build-isolation --no-deps
 ```
 
-You don’t need to install [flash-kmeans](https://github.com/svg-project/flash-kmeans) separately. A copy of flash-kmeans is included in Sparse VideoGen and is used by default.
+**Notes.**
 
-## 🚀 Inference Examples
-### Wan 2.1
+- Set `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1` once models are cached, and
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (the scripts do this).
+- The first denoising steps JIT-compile FlashInfer; timed runs use warmup.
+- The operator benchmark may abort in the `CUDASymmetricMemory` destructor at
+  teardown; results are written before that point.
+- The unpadded operator replay needs a per-GPU sequence length divisible by
+  128, which is why some replays use 125 frames; `wan_t2v_sp_inference.py`
+  pads internally.
+- Timing runs are sensitive to other jobs on the same GPUs.
 
-We support Text-to-Video and Image-to-Video inference of Wan 2.1 model. The running scripts are:
+## Reproducing the paper
+
+All commands run from the repository root. Outputs go to `result/`
+(git-ignored). The shipped cost models in `result/*/maskgen_aware_cost.json`
+are used by default; `lb/profile_cost.sh` refits them.
+
+### GPU-free analyses
+
 ```bash
-# Text-to-Video
-# bash scripts/wan/wan_t2v_720p_svg.sh # SVG
-bash scripts/wan/wan_t2v_720p_sap.sh # SVG2
-
-# Image-to-Video
-# bash scripts/wan/wan_i2v_720p_svg.sh # SVG
-bash scripts/wan/wan_i2v_720p_sap.sh # SVG2
+python lb/analyze_cost_sensitivity.py   # Appendix Table 9: coefficient-error penalty
+python lb/analyze_cost_portability.py   # Appendix D.2: HunyuanVideo planned with Wan fits
+python lb/analyze_plan_stability.py     # Appendix D.3: per-step re-planning vs fixed placement
 ```
 
-### HunyuanVideo
+`lb/predict_balance.py` plans a recorded trace with every placement policy,
+including the split-head simulation used for the whole-head granularity study
+(Appendix E).
 
-The running scripts are:
+### Sparse-attention region (Figures 5 and 6(a), Table 1)
+
+Each experiment replays one captured (layer, step) Q/K/V snapshot. First dump
+the snapshot and its density trace on one GPU, then run the comparison:
+
 ```bash
-# bash scripts/hyvideo/hyvideo_t2v_720p_svg.sh # SVG
-bash scripts/hyvideo/hyvideo_t2v_720p_sap.sh # SVG2
+RESOLUTION=720p NUM_FRAMES=120 bash lb/dump_wan_1.3b_attn.sh
+
+# Figure 5: WORLD_SIZE in {2,3,4,5,6,8}; same pattern for the other models
+RESOLUTION=720p NUM_FRAMES=120 WORLD_SIZE=4 bash lb/run_wan_1.3b_balance_compare.sh
+RESOLUTION=720p NUM_FRAMES=120 WORLD_SIZE=8 bash lb/run_wan_14b_balance_compare.sh
+RESOLUTION=720p NUM_FRAMES=120 WORLD_SIZE=8 bash lb/run_hunyuan_t2v_balance_compare.sh
+
+# Figure 6(a): NUM_FRAMES in {15,30,60,120,240}, four GPUs
+RESOLUTION=720p NUM_FRAMES=240 WORLD_SIZE=4 bash lb/run_wan_1.3b_balance_compare.sh
+
+# Table 1 (placement ablation; the paper used 20 iterations after 5 warmups)
+RESOLUTION=720p NUM_FRAMES=240 NPROC=4 ITERS=20 WARMUP=5 bash lb/run_wan_ablation_placement.sh
 ```
 
+The Wan2.1-14B and HunyuanVideo dumps use `lb/dump_wan_14b_attn.sh` and
+`lb/dump_hunyuan_t2v_attn.sh` with the same variables.
 
-## 📑 Open-source Plan
- - [ ] Support FP8 attention
- - [x] Support [Wan 2.1](https://github.com/Wan-Video/Wan2.1)
- - [x] Support [Cosmos](https://github.com/NVIDIA/Cosmos)
+### End-to-end generation (Table 2, Appendix Table 3)
 
-## Efficiency Benchmark
-<!-- ### End-to-End Speedup
+```bash
+GPUS=0,1,2,3 bash lb/run_e2e.sh
+```
 
-| Model | Task | Hardware | Resolution | Baseline (min) | SVG (min) | Speedup |
-|-------|------|----------|------------|---------------|-----------|---------|
-| HunyuanVideo | Text-to-Video | H100 | 720P | 29:57 | 15:38 | 1.91× |
-| Wan 2.1 | Text-to-Video | H100 | 720P | 31:35 | 20:51 | 1.51× |
-| Wan 2.1 | Text-to-Video | H100 | 480P | 8:05 | 6:11 | 1.32×  |
-| Wan 2.1 | Image-to-Video | H100 | 720P | 24:05 | 16:03 | 1.50× |
-| HunyuanVideo | Text-to-Video | A100 | 720P | 50:48 | 30:14 | 1.68× |
-| Wan 2.1 | Text-to-Video | A100 | 720P | 57:57 | 42:59 | 1.35× |
-| Wan 2.1 | Text-to-Video | A100 | 480P | 15:41 | 13:00 | 1.20× |
-| Wan 2.1 | Image-to-Video | A100 | 720P | 45:19 | 34:27 | 1.32× | -->
+Runs five paired generations (equal-head baseline and AsymHP; Wan2.1-1.3B,
+720p, 120 requested frames, 50 steps, sparse from the first step and layer) and
+writes a summary with the E2E speedup, sparse-region fraction, Amdahl
+estimate, and AsymHP critical-path breakdown.
 
+### Second sparse method, PCIe, and sparsity sweep
 
-### Customized Kernels Performance
-We evaluate the performance of our customized kernels against the baseline implementations. The following tables show the memory bandwidth (GB/s) comparison for different batch sizes and hidden dimensions:
+```bash
+# 125-frame snapshot (layer 21, step 20), sparse from the first step/layer
+RESOLUTION=720p NUM_FRAMES=125 FIRST_TIMES_FP=0 FIRST_LAYERS_FP=0 bash lb/dump_wan_1.3b_attn.sh
 
-#### RMSNorm Performance
+GPUS=0,1,2,3 bash lb/run_sparge.sh        # Figure 6(b): SpargeAttn, CDF 0.6-0.9
+GPUS=0,1,2 bash lb/run_topp_dumps.sh      # density traces for top-p 0.7/0.8/0.95
+GPUS=0,1,2,3 bash lb/run_topp_sweep.sh    # Appendix Table 7
+```
 
-| Batch Size | Hidden Dim | Diffusers (GB/s) | SVG Customized (GB/s) | Speedup |
-|------------|------------|------------------|----------------------|----------|
-| 2,097,152  | 32        | 151.36           | 809.69              | 5.35×    |
-| 1,048,576  | 64        | 196.54           | 810.61              | 4.12×    |
-| 524,288    | 128       | 232.66           | 810.21              | 3.48×    |
-| 262,144    | 256       | 252.67           | 810.41              | 3.21×    |
+The PCIe study (Appendix Table 4) runs `lb/bench_sp_all2all_attention.py` on
+the 120-frame snapshot on four L40S GPUs; the measured per-rank breakdowns are
+in `artifacts/l40s_w4_wan21_13b_720p_121f/`.
 
-#### LayerNorm Performance
+### Numerical agreement (Appendix Tables 5 and 6)
 
-| Batch Size | Hidden Dim | Diffusers (GB/s) | SVG Customized (GB/s) | Speedup |
-|------------|------------|------------------|----------------------|----------|
-| 2,097,152  | 32        | 45.82            | 808.28              | 17.64×   |
-| 1,048,576  | 64        | 91.18            | 805.22              | 8.83×    |
-| 524,288    | 128       | 197.89           | 804.29              | 4.06×    |
-| 262,144    | 256       | 350.87           | 804.43              | 2.29×    |
+```bash
+# operator level, on the 120-frame snapshot
+SNAP=result/wan/t2v/sap_1.3b/Step_50-Res_720p/TFP_0.2-LFP_0.03/QC_300-KC_1000-TopP_0.9/Init_50-Step_2-MinR_0.10_120frames
+W=2 python lb/op_parity.py $SNAP/attn_dumps/1-0_step20_layer21.pt $SNAP/1-0.jsonl
+W=4 MIN_HEADS=2 python lb/op_parity.py $SNAP/attn_dumps/1-0_step20_layer21.pt $SNAP/1-0.jsonl
 
-Our customized kernels achieve significantly higher memory bandwidth across all configurations, with speedups ranging from 2.29× to 17.64×. The performance improvement is particularly notable for smaller hidden dimensions and larger batch sizes.
+# decoded videos, three prompts with baseline repeatability controls
+GPUS=0,1,2,3 bash lb/run_video_parity.sh
+```
 
-### RoPE (Rotary Position Embedding) Performance
+## Tests
 
-| Batch Size | Num Heads | Seq Length | Head Dim | Diffusers (GB/s) | SVG Customized (GB/s) | Speedup |
-|------------|-----------|------------|----------|------------------|----------------------|----------|
-| 1          | 32        | 1024       | 64      | 17.25           | 158.81              | 9.21×    |
-| 1          | 32        | 4096       | 64      | 27.74           | 405.75              | 14.63×   |
-| 1          | 32        | 16384      | 64      | 30.86           | 605.89              | 19.63×   |
-| 4          | 32        | 1024       | 64      | 27.60           | 475.94              | 17.24×   |
-| 4          | 32        | 4096       | 64      | 30.93           | 614.11              | 19.85×   |
-| 4          | 32        | 16384      | 64      | 32.41           | 648.36              | 20.00×   |
+```bash
+python lb/test_split_planner.py                         # CPU
+python lb/test_head_index_staging.py                    # CPU
+torchrun --nproc_per_node=2 lb/test_asymm_pull.py       # asymmetric exchange, H100
+torchrun --nproc_per_node=2 lb/test_symmetric_memory_basic.py
+```
 
-The RoPE implementation in SVG shows substantial performance improvements over the Diffusers baseline, with speedups ranging from 9.21× to 20.00×. The performance gain is particularly significant for longer sequence lengths and larger batch sizes, demonstrating excellent scaling characteristics.
+## Citation
 
-## 🔗 BibTeX
-If you find Sparse VideoGen useful for your research and applications or interesting, please cite our work using BibTeX:
 ```bibtex
-@article{xi2025sparse,
-  title={Sparse VideoGen: Accelerating Video Diffusion Transformers with Spatial-Temporal Sparsity},
-  author={Xi, Haocheng and Yang, Shuo and Zhao, Yilong and Xu, Chenfeng and Li, Muyang and Li, Xiuyu and Lin, Yujun and Cai, Han and Zhang, Jintao and Li, Dacheng and others},
-  journal={arXiv preprint arXiv:2502.01776},
-  year={2025}
-}
-
-@article{yang2025sparse,
-  title={Sparse VideoGen2: Accelerate Video Generation with Sparse Attention via Semantic-Aware Permutation},
-  author={Yang, Shuo and Xi, Haocheng and Zhao, Yilong and Li, Muyang and Zhang, Jintao and Cai, Han and Lin, Yujun and Li, Xiuyu and Xu, Chenfeng and Peng, Kelly and others},
-  journal={arXiv preprint arXiv:2505.18875},
-  year={2025}
+@inproceedings{qiang2026asymhp,
+  title     = {AsymHP: Load-Balanced Sparse Attention for Video Diffusion Transformers},
+  author    = {Qiang, Xinwei and Guan, Yue and Zhu, Ruihan and Jagtap, Mihir and
+               Pan, Zaifeng and Yu, Zhongkai and Chen, Chang and Hu, Zhengding and
+               Ding, Yufei and Aziz, Adnan},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2026}
 }
 ```
+
+Please also cite Sparse VideoGen and Sparse VideoGen2 if you use the SVG2
+backend.
+
+## License
+
+Apache License 2.0; see `LICENSE.txt`. Third-party components keep their
+licenses; see `THIRD_PARTY.md`.

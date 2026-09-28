@@ -40,12 +40,5 @@ def load_prompt_or_image(prompt_source, prompt_idx, prompt, image_path):
 
         prompt = prompts[prompt_idx]
         return prompt, None
-    elif prompt_source in ["T2V_Xingyang_Motion", "T2V_Xingyang_VBench"]:
-        assert prompt.endswith(".txt"), "Prompt must be a txt file"
-        with open(prompt, "r") as f:
-            prompts = f.readlines()
-
-        prompt = prompts[prompt_idx]
-        return prompt, None
     else:
         raise ValueError(f"Invalid prompt source: {prompt_source}")

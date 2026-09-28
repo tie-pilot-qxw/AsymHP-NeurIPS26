@@ -55,8 +55,15 @@ def replace_hyvideo_attention(
 ):
 
     cfg_size, num_head, head_dim, dtype, device = 1, 24, 128, torch.bfloat16, "cuda"
-    context_length, num_frame = 256, 1 + num_frames // 4  # TODO: Make it more formal
-    frame_size = height * width // 256  # TODO: Make it more formal
+    # VAE temporal scale = 4. Matches diffusers HunyuanVideoPipeline.prepare_latents:
+    # `(num_frames - 1) // self.vae_scale_factor_temporal + 1`. The previous
+    # `1 + num_frames // 4` form silently disagreed for any num_frames not of the
+    # form 4n+1, which crashes attention_core_logic's seq_len assert downstream.
+    context_length, num_frame = 256, (num_frames - 1) // 4 + 1
+    # Spatial patch size 2x2 over a VAE that has already 8x downsampled HxW —
+    # net effect is height*width / (16*16). Both sides are at least 16-aligned
+    # for any supported resolution (480p / 720p), so this divides cleanly.
+    frame_size = height * width // 256
 
     if pattern == "SVG":
         masks = ["spatial", "temporal"]

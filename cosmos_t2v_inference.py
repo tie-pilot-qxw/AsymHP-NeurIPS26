@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument("--prompt", type=str, default=None, help="Text prompt for video generation")
     parser.add_argument("--negative_prompt", type=str, default=None, help="Negative text prompt to avoid certain features")
 
-    parser.add_argument("--prompt_source", type=str, default="prompt", choices=["prompt", "T2V_Wan_VBench", "T2V_Xingyang_VBench"], help="Source of the prompt")
+    parser.add_argument("--prompt_source", type=str, default="prompt", choices=["prompt", "T2V_Wan_VBench"], help="Source of the prompt")
     parser.add_argument("--prompt_idx", type=int, default=0, help="Index of the prompt")
 
     parser.add_argument("--height", type=int, default=704, help="Height of the generated video")

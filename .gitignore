@@ -108,3 +108,13 @@ result/
 *.odt
 *.rtf
 
+
+# Checked-in experiment evidence. Keep this exception after the global
+# JSON/JSONL/CSV output rules above.
+!artifacts/
+!artifacts/l40s_w4_wan21_13b_720p_121f/
+!artifacts/l40s_w4_wan21_13b_720p_121f/**
+
+# Density traces shipped for the GPU-free analyses.
+!data/
+!data/**

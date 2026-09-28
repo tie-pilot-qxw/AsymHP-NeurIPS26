@@ -1,0 +1,28 @@
+diff --git a/spas_sage_attn/core.py b/spas_sage_attn/core.py
+index 01eda7a..5acec03 100644
+--- a/spas_sage_attn/core.py
++++ b/spas_sage_attn/core.py
+@@ -37,7 +37,7 @@ def get_cuda_arch_versions():
+     return cuda_archs
+ 
+ @torch.compiler.disable
+-def spas_sage2_attn_meansim_cuda(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, smooth_k=True, simthreshd1=0.6, cdfthreshd=0.98, pvthreshd=50, attention_sink=False, tensor_layout="HND", output_dtype=torch.float16, return_sparsity=False):
++def spas_sage2_attn_meansim_cuda(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, smooth_k=True, simthreshd1=0.6, cdfthreshd=0.98, pvthreshd=50, attention_sink=False, tensor_layout="HND", output_dtype=torch.float16, return_sparsity=False, return_head_density=False):
+     assert tensor_layout in ['HND', 'NHD']
+     if tensor_layout == 'NHD':
+         q, k, v = map(lambda t: rearrange(t, '... L H D -> ... H L D'), (q, k, v))
+@@ -93,7 +93,13 @@ def spas_sage2_attn_meansim_cuda(q, k, v, attn_mask=None, dropout_p=0.0, is_caus
+     
+     if tensor_layout == 'NHD':
+         o = rearrange(o, '... H L D -> ... L H D')
+-    if return_sparsity:
++    if return_head_density:
++        if is_causal is False:
++            qk_density = valid_block_num.float().sum(dim=-1) / (lut.size(3) * lut.size(2))
++        else:
++            qk_density = valid_block_num.float().sum(dim=-1) / (((lut.size(3) + 2) // 2) * lut.size(2))
++        return o, qk_density
++    elif return_sparsity:
+         if is_causal is False:
+             qk_sparsity = 1 - (valid_block_num.float().sum()) / (lut.size(3) * lut.size(2) * lut.size(0) * lut.size(1))
+         else:

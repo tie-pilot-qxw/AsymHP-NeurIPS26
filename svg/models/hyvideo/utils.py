@@ -65,7 +65,6 @@ def get_attention_mask(mask_name, sample_mse_max_row, context_length, num_frame,
 
         attention_mask[-context_length:, :] = 1
         attention_mask[:, -context_length:] = 1
-        # attention_mask = torch.load(f"/data/home/xihaocheng/andy_develop/tmp_data/hunyuanvideo/I2VSparse/sparseattn/v5/mask_tensor/mask_spatial.pt", map_location="cpu")
 
     else:
         pixel_attn_mask = torch.zeros_like(
@@ -88,7 +87,6 @@ def get_attention_mask(mask_name, sample_mse_max_row, context_length, num_frame,
 
         attention_mask[-context_length:, :] = 1
         attention_mask[:, -context_length:] = 1
-        # attention_mask = torch.load(f"/data/home/xihaocheng/andy_develop/tmp_data/hunyuanvideo/I2VSparse/sparseattn/v5/mask_tensor/mask_temporal.pt", map_location="cpu")
     attention_mask = attention_mask[:sample_mse_max_row].cuda()
     return attention_mask
 

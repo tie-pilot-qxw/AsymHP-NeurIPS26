@@ -6,6 +6,7 @@ from ...logger import logger
 from ..utils import visualize_sparse_bsr
 from .attention import (
     WanAttn_SAPAttn_Processor,
+    WanAttn_SpargeAttn_Processor,
     WanAttn_SVGAttn_Processor2_0,
     prepare_flashinfer_attention,
     prepare_flexattention,
@@ -36,6 +37,10 @@ def replace_wan_attention(
     kmeans_iter_init=0,
     kmeans_iter_step=0,
     zero_step_kmeans_init=False,
+    # SpargeAttn (real thu-ml kernel) specific
+    simthreshd1=0.6,
+    cdfthreshd=0.98,
+    pvthreshd=50,
 ):
 
     context_length = 0  # This seems to be 0 for I2V in SVG
@@ -173,6 +178,32 @@ def replace_wan_attention(
                     layer_idx=layer_idx,
                 )
                 m.attn1.set_processor(current_processor)
+    elif pattern == "SpargeAttn":
+        # Real thu-ml SpargeAttn kernel as the local sparse method.
+        logger.info(
+            f"Configuring SpargeAttn with simthreshd1={simthreshd1}, cdfthreshd={cdfthreshd}, pvthreshd={pvthreshd}"
+        )
+        if logging_file is not None:
+            os.makedirs(os.path.dirname(logging_file), exist_ok=True)
+            with open(logging_file, "w") as f:
+                f.write("")
+
+        AttnModule = WanAttn_SpargeAttn_Processor
+        AttnModule.first_layers_fp = first_layers_fp
+        AttnModule.first_times_fp = first_times_fp
+        AttnModule.logging_file = logging_file
+        AttnModule.context_length = context_length
+        AttnModule.num_frame = num_frame_patches
+        AttnModule.frame_size = frame_patches_one_frame
+        AttnModule.simthreshd1 = simthreshd1
+        AttnModule.cdfthreshd = cdfthreshd
+        AttnModule.pvthreshd = pvthreshd
+        AttnModule.num_layers = num_layers
+
+        for layer_idx, m in enumerate(pipe.transformer.blocks):
+            if hasattr(m.attn1, "processor"):
+                m.attn1.set_processor(AttnModule(layer_idx=layer_idx))
+
     else:  # dense or other patterns
         raise ValueError(f"Pattern '{pattern}' not supported")
 

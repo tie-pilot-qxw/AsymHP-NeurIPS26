@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser.add_argument("--prompt", type=str, default=None, help="Text prompt for video generation")
     parser.add_argument("--negative_prompt", type=str, default=None, help="Negative text prompt to avoid certain features")
 
-    parser.add_argument("--prompt_source", type=str, default="prompt", choices=["prompt", "T2V_Wan_VBench", "T2V_Xingyang_VBench"], help="Source of the prompt")
+    parser.add_argument("--prompt_source", type=str, default="prompt", choices=["prompt", "T2V_Wan_VBench"], help="Source of the prompt")
     parser.add_argument("--prompt_idx", type=int, default=0, help="Index of the prompt")
 
     parser.add_argument("--height", type=int, default=720, help="Height of the generated video")
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0, help="Random seed for generation")
     parser.add_argument("--skip_existing", action="store_true", help="Skip generating existing output files")
 
-    parser.add_argument("--pattern", type=str, default="dense", choices=["SVG", "dense", "SAP"])
+    parser.add_argument("--pattern", type=str, default="dense", choices=["SVG", "dense", "SAP", "SpargeAttn"])
     parser.add_argument("--first_layers_fp", type=float, default=0.025, help="Only works for best config. Leave the 0, 1, 2, 40, 41 layers in FP")
     parser.add_argument("--first_times_fp", type=float, default=0.075, help="Only works for best config. Leave the first 10% timestep in FP")
     
@@ -48,6 +48,10 @@ if __name__ == "__main__":
     parser.add_argument("--num_q_centroids", "--qc", type=int, default=50, help="Number of query centroids for KMEANS_BLOCK.")
     parser.add_argument("--num_k_centroids", "--kc", type=int, default=200, help="Number of key centroids for KMEANS_BLOCK.")
     parser.add_argument("--top_p_kmeans", type=float, default=0.9, help="Top-p threshold for block selection in KMEANS_BLOCK.")
+    # SpargeAttn (real thu-ml kernel) related
+    parser.add_argument("--simthreshd1", type=float, default=0.6, help="SpargeAttn mean-similarity threshold.")
+    parser.add_argument("--cdfthreshd", type=float, default=0.98, help="SpargeAttn CDF/top-p threshold.")
+    parser.add_argument("--pvthreshd", type=int, default=50, help="SpargeAttn PV threshold.")
     parser.add_argument("--min_kc_ratio", type=float, default=0, help="At least this proportion of key blocks to keep per query block in KMEANS_BLOCK.")
     parser.add_argument("--kmeans_iter_init", type=int, default=0, help="Number of KMeans iterations for initialization in KMEANS_BLOCK.")
     parser.add_argument("--kmeans_iter_step", type=int, default=0, help="Number of KMeans iterations for other diffusion steps in KMEANS_BLOCK.")
@@ -145,6 +149,20 @@ if __name__ == "__main__":
             logging_file=args.logging_file,
             kmeans_iter_init=args.kmeans_iter_init,
             kmeans_iter_step=args.kmeans_iter_step,
+        )
+    elif args.pattern == "SpargeAttn":
+        replace_wan_attention(
+            pipe,
+            args.height,
+            args.width,
+            args.num_frames,
+            first_layers_fp=args.first_layers_fp,
+            first_times_fp=args.first_times_fp,
+            pattern=args.pattern,
+            simthreshd1=args.simthreshd1,
+            cdfthreshd=args.cdfthreshd,
+            pvthreshd=args.pvthreshd,
+            logging_file=args.logging_file,
         )
 
     # Print time logger

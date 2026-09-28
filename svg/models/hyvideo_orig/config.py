@@ -373,7 +373,7 @@ def add_sparsity_args(parser: argparse.ArgumentParser):
 
     # ======================== Model loads ========================
 
-    parser.add_argument("--prompt_source", type=str, default="prompt", choices=["prompt", "T2V_Hyv_VBench", "T2V_Hyv_Web", "T2V_Xingyang_Motion", "T2V_Xingyang_VBench"], help="Source of the prompt")
+    parser.add_argument("--prompt_source", type=str, default="prompt", choices=["prompt", "T2V_Hyv_VBench", "T2V_Hyv_Web"], help="Source of the prompt")
     parser.add_argument("--prompt_idx", type=int, default=0, help="Index of the prompt")
 
     parser.add_argument("--output_file", type=str, default="output.mp4", help="Output video file name")

@@ -101,7 +101,6 @@ if __name__ == "__main__":
 
                 attention_mask[-context_length:, :] = 1
                 attention_mask[:, -context_length:] = 1
-                # attention_mask = torch.load(f"/data/home/xihaocheng/andy_develop/tmp_data/hunyuanvideo/I2VSparse/sparseattn/v5/mask_tensor/mask_spatial.pt", map_location="cpu")
 
             else:
                 pixel_attn_mask = torch.zeros_like(attention_mask[:-context_length, :-context_length], dtype=torch.bool, device=device)
@@ -118,7 +117,6 @@ if __name__ == "__main__":
 
                 attention_mask[-context_length:, :] = 1
                 attention_mask[:, -context_length:] = 1
-                # attention_mask = torch.load(f"/data/home/xihaocheng/andy_develop/tmp_data/hunyuanvideo/I2VSparse/sparseattn/v5/mask_tensor/mask_temporal.pt", map_location="cpu")
             attention_mask = attention_mask[: args.sample_mse_max_row].cuda()
             return attention_mask
 
