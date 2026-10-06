@@ -27,6 +27,9 @@ from symm_a2a import SymmAsymA2A
 
 # Checks that failed on any rank; every rank records the same entries.
 _FAILURES: list[str] = []
+# Keep every SymmAsymA2A alive until exit: freeing symmetric memory can abort in
+# CUDASymmetricMemory's destructor (torch 2.9), which would end the run early.
+_KEEPALIVE: list = []
 
 
 def _record(ok: bool, label: str, device) -> bool:
@@ -76,6 +79,7 @@ def _run_case(
         device=device,
         s_block=min(128, S_LOCAL),
     )
+    _KEEPALIVE.append(a2a)
     for name in ("q", "k", "v"):
         _fill_symm(a2a._symm[name], rank, H_TOTAL, S_LOCAL)
 
@@ -213,6 +217,7 @@ def _run_reverse_case(
         s_block=min(128, S_LOCAL),
         enable_reverse=True,
     )
+    _KEEPALIVE.append(a2a)
 
     # Local source buffer: [B, h_local, world * s_padded, D]. Encoded so that
     # src[b, lh, p*s_padded + s, d] = (rank * max_hpr + lh) * s_full + p*S_LOCAL + s
@@ -385,9 +390,10 @@ def main():
             print(f"\n{len(_FAILURES)} check(s) FAILED: " + "; ".join(_FAILURES))
         else:
             print("\nAll cases passed.")
-    dist.destroy_process_group()
-    if _FAILURES:
-        sys.exit(1)
+    # Skip interpreter teardown (and the symmetric-memory destructor abort); the
+    # exit code reports whether every check passed on every rank.
+    sys.stdout.flush()
+    os._exit(1 if _FAILURES else 0)
 
 
 if __name__ == "__main__":

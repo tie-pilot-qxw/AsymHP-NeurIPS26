@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 from datetime import timedelta
 
@@ -87,8 +88,13 @@ def main() -> None:
                 "+ direct peer reads",
                 flush=True,
             )
-    finally:
+    except BaseException:
         dist.destroy_process_group()
+        raise
+    # Freeing symmetric memory can abort in CUDASymmetricMemory's destructor
+    # (torch 2.9); skip interpreter teardown once the test has passed.
+    sys.stdout.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":
