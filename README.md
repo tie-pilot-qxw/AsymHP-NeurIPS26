@@ -39,7 +39,7 @@ The simplest environment is an NGC PyTorch container, e.g.
 `nvcr.io/nvidia/pytorch:25.06-py3`:
 
 ```bash
-git clone --recursive <this repository> asymhp && cd asymhp
+git clone --recursive https://github.com/tie-pilot-qxw/AsymHP-NeurIPS26.git asymhp && cd asymhp
 python -m venv --system-site-packages .venv && source .venv/bin/activate
 pip install -e . --no-deps
 pip install diffusers==0.34.0 transformers==4.57.1 accelerate \
