@@ -15,7 +15,7 @@
 #   WORLD_SIZE=4 NUM_FRAMES=65 bash lb/run_hunyuan_t2v_balance_compare.sh
 #
 # Knobs (env vars):
-#   NUM_FRAMES   — must match dump (4n+1 for hunyuan). Default 129.
+#   NUM_FRAMES   — must match dump. Default 129 (the paper uses 120 at 720p).
 #   LAYER, STEP  — must match dump. Default 21, 20.
 #   RESOLUTION   — 480p / 720p. Default 480p.
 #   WORLD_SIZE   — real GPU count, ignored when SIM_WORLD>0. Default 8.
@@ -30,7 +30,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 NUM_FRAMES="${NUM_FRAMES:-129}"
-LAYER="${LAYER:-30}"
+LAYER="${LAYER:-21}"
 STEP="${STEP:-20}"
 RESOLUTION="${RESOLUTION:-480p}"
 WORLD_SIZE="${WORLD_SIZE:-8}"
@@ -44,6 +44,9 @@ FIRST_TIMES_FP=0.04; FIRST_LAYERS_FP=0.0
 
 OUT_DIR="result/hyvideo/t2v/sap"
 LOG_DIR="${OUT_DIR}/Step_${NUM_INFERENCE_STEPS}-Res_${RESOLUTION}/TFP_${FIRST_TIMES_FP}-LFP_${FIRST_LAYERS_FP}/QC_${QC}-KC_${KC}-TopP_${TOP_P}/Init_${KM_INIT}-Step_${KM_STEP}-MinR_${MIN_KC_RATIO}_${NUM_FRAMES}frames"
+CSV_DIR="${CSV_DIR:-${LOG_DIR}/bench}"  # per-rank CSVs
+mkdir -p "$CSV_DIR"
+export CSV_DIR
 DUMP_DIR="${LOG_DIR}/attn_dumps"
 INPUT="${INPUT:-${DUMP_DIR}/${PROMPT_ID}-0_step${STEP}_layer${LAYER}.pt}"
 DENSITY="${DENSITY:-${LOG_DIR}/${PROMPT_ID}-0.jsonl}"
@@ -79,6 +82,14 @@ else
   CONFIGS_TO_RUN="baseline,symm,asym_cost"
 fi
 
+# Contiguous and equal-count placement need num_heads % W == 0; AsymHP
+# (greedy_unequal + asymmetric exchange) also runs non-divisible configs.
+NUM_HEADS="${NUM_HEADS:-24}"
+if (( NUM_HEADS % EFFECTIVE_W != 0 )); then
+  echo "[run] heads=$NUM_HEADS not divisible by effective_W=$EFFECTIVE_W; running asym_cost only"
+  CONFIGS_TO_RUN="asym_cost"
+fi
+
 if [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
   export CUDA_VISIBLE_DEVICES="$(seq -s, 0 $((REAL_W - 1)))"
 fi
@@ -104,16 +115,17 @@ run_cfg() {
   fi
   echo
   echo "=== $name ==="
+  local csv="${CSV_DIR}/${TAG}_${name}.csv"
+  rm -f "$csv"
+  # The bench may abort in the CUDASymmetricMemory destructor after writing its
+  # CSV, so only a missing CSV counts as a failure; later configs still run.
   torchrun --nproc-per-node="$REAL_W" --master-port="$2" "$SCRIPT" \
     "${COMMON[@]}" "${SIM_FLAGS[@]}" "${@:3}" \
-    --rank-csv /tmp/${TAG}_${name}.csv 2>&1
+    --rank-csv "$csv" 2>&1 || true
+  [[ -s "$csv" ]] || echo "[ERR] $name produced no CSV"
 }
 
-if [[ "$SIM_WORLD" -gt 0 ]]; then
-  run_cfg baseline    _ 29820 --balance contiguous
-else
-  run_cfg baseline    _ 29820 --balance contiguous
-fi
+run_cfg baseline      _ 29820 --balance contiguous
 run_cfg symm          _ 29821 --balance greedy
 if [[ "$SIM_WORLD" -gt 0 ]]; then
   run_cfg asym_cost   _ 29822 --balance greedy_unequal --cost-model-json "$COST_JSON"
@@ -131,7 +143,7 @@ labels = {"baseline": "baseline", "symm": "symm", "asym_cost": "asym+cost"}
 baseline = None
 for cfg in configs:
     label = labels.get(cfg, cfg)
-    path = f"/tmp/{tag}_{cfg}.csv"
+    path = f"{os.environ['CSV_DIR']}/{tag}_{cfg}.csv"
     if not os.path.exists(path):
         print(f"{label:14s} <missing csv>"); continue
     rows = list(csv.DictReader(open(path)))

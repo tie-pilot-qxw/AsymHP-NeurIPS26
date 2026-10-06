@@ -18,7 +18,7 @@
 #     STEP         — denoising step (0-indexed) to dump. Default 20.
 #                    Must be >= ceil(first_times_fp * num_inference_steps) = 10
 #                    so that SAP (not full-attention warmup) runs at that step.
-#     RESOLUTION   — "480p" (480x832) or "720p" (720x1280). Default 480p.
+#     RESOLUTION   — "480p" (480x832) or "720p" (720x1280). Default 720p.
 #     PROMPT_ID    — examples/<id>/prompt.txt to feed. Default 1.
 #     CUDA_VISIBLE_DEVICES — pick GPUs (Wan 14B needs roughly 1x H100 or better).
 

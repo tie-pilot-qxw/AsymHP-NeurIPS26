@@ -3,13 +3,12 @@
 
 Runs the bench script twice via torchrun (greedy_unequal baseline + split)
 and compares per-rank `out_seq` tensors. The split path must reproduce the
-baseline's output to within `--threshold` max-abs-diff (defaults to 1e-3,
-the spec's pass criterion).
+baseline's output to within `--threshold` max-abs-diff (default 1e-3).
 
 Usage:
     python lb/test_split_e2e.py [--world 6] [--threshold 1e-3]
 
-Defaults to the 6-rank layer21/480frames sample referenced in the spec.
+Defaults to a 6-rank Wan2.1-1.3B layer-21, 480-frame snapshot.
 The host needs at least `--world` GPUs; we don't gate on this here so
 torchrun's own error message fires when GPUs are missing.
 """
@@ -67,7 +66,12 @@ def run_bench(world_size: int, balance: str, dump_prefix: Path, args) -> str:
     sys.stdout.write(out.stdout)
     sys.stderr.write(out.stderr)
     if out.returncode != 0:
-        raise SystemExit(f"bench {balance} failed (exit {out.returncode})")
+        # The bench may abort in the CUDASymmetricMemory destructor at teardown,
+        # after the per-rank dumps are written; only fail if a dump is missing.
+        missing = [r for r in range(world_size) if not Path(f"{dump_prefix}.rank{r}.pt").exists()]
+        if missing:
+            raise SystemExit(f"bench {balance} failed (exit {out.returncode}); no dump for ranks {missing}")
+        print(f"[warn] bench {balance} exited with {out.returncode} after writing all dumps")
     return out.stdout
 
 

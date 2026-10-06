@@ -298,11 +298,10 @@ class WanAttn_SVGAttn_Processor2_0:
 
         context_length, num_frame, frame_size = self.context_length, self.num_frame, self.frame_size
 
-        # >= (not ==): the asymmetric-a2a path pads the sequence to a multiple of
-        # (128*W) for the TMA pull/push kernels (e.g. 14B-720p W=8: 115200->115712).
-        # Trailing pad tokens flow through sparse attention and are trimmed by the
-        # SP forward; the warmup path still uses real num_frame*frame_size to
-        # exclude the pad from k-means.
+        # >= (not ==) tolerates callers that pass a padded sequence: the
+        # asymmetric a2a pads the sequence to a multiple of 128*W. The SP processor
+        # trims the pad before calling this (lb/wan_sp/attention.py, _local_attn),
+        # so pad tokens never enter sparse attention or k-means.
         assert (
             seq_len >= context_length + num_frame * frame_size
         ), f"Query Shape: {seq_len} < real length {context_length} + {num_frame} * {frame_size}"
@@ -415,8 +414,8 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
     def _row_seeds(self, layer_idx, cfg, num_heads, qk_off):
         """Per-head init seeds keyed by GLOBAL head id, so head H's kmeans init
         is identical no matter which rank computes it. Makes the sparse pipeline
-        deterministic AND placement-invariant (AsymHP output == baseline output
-        bit-for-bit). Falls back to local head order for single-card runs."""
+        deterministic AND placement-invariant (AsymHP builds the same masks as the
+        baseline). Falls back to local head order for single-card runs."""
         heads = getattr(self, "_my_heads", None)
         if heads is None:
             heads = list(range(num_heads))
@@ -560,11 +559,10 @@ class WanAttn_SAPAttn_Processor(WanAttn_SVGAttn_Processor2_0):
 
         context_length, num_frame, frame_size = self.context_length, self.num_frame, self.frame_size
 
-        # >= (not ==): the asymmetric-a2a path pads the sequence to a multiple of
-        # (128*W) for the TMA pull/push kernels (e.g. 14B-720p W=8: 115200->115712).
-        # Trailing pad tokens flow through sparse attention and are trimmed by the
-        # SP forward; the warmup path still uses real num_frame*frame_size to
-        # exclude the pad from k-means.
+        # >= (not ==) tolerates callers that pass a padded sequence: the
+        # asymmetric a2a pads the sequence to a multiple of 128*W. The SP processor
+        # trims the pad before calling this (lb/wan_sp/attention.py, _local_attn),
+        # so pad tokens never enter sparse attention or k-means.
         assert (
             seq_len >= context_length + num_frame * frame_size
         ), f"Query Shape: {seq_len} < real length {context_length} + {num_frame} * {frame_size}"

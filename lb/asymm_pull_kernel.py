@@ -17,9 +17,8 @@ after the launch is enough to publish the data — no mid-iter sync between
 is disjoint, so different ranks write disjoint rows of each peer's
 recv_symm — no row-level race.
 
-Sync is the caller's job — sandwich each launch between `symm.barrier()`
-so peers' writes are visible before loads and local writes finish before
-any peer overwrites its own buffer.
+Sync is the caller's job; see `symm_a2a.SymmAsymA2A` for where the
+barriers go.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ def ensure_tma_allocator() -> None:
     global _ALLOCATOR_REGISTERED
     if _ALLOCATOR_REGISTERED:
         return
-    # Triton 3.2 (the Ada test image) has no public allocator hook; its
+    # Older Triton (e.g. 3.2) has no public allocator hook; its
     # descriptor fallback owns the scratch allocation internally.
     if hasattr(triton, "set_allocator"):
         triton.set_allocator(_tma_allocator)
@@ -133,8 +132,10 @@ def asymm_pull_seq_to_heads_pcie_kernel(
     keeps register lifetime independent of WORLD and lets the scheduler overlap
     traffic to different peers when the topology permits.
     """
-    peer_axis = tl.program_id(0)
-    linear_tile = tl.program_id(1)
+    # Tiles go on grid axis 0 (up to 2^31-1 blocks); axis 1 is capped at 65535,
+    # which long sequences exceed, so it only carries the (small) peer index.
+    linear_tile = tl.program_id(0)
+    peer_axis = tl.program_id(1)
 
     peer = (peer_axis + RANK + PEER_OFFSET) % WORLD
     tiles_per_batch = H_LOCAL * TILES_PER_HEAD
@@ -188,7 +189,7 @@ def _asymm_pull_seq_to_heads_pcie(
     peer_mode = pcie_peer_mode(world_size)
     peer_offsets = range(1, world_size + 1) if peer_mode == "serial" else (1,)
     peer_grid = 1 if peer_mode == "serial" else world_size
-    grid = (peer_grid, b * h_local * tiles_per_head)
+    grid = (b * h_local * tiles_per_head, peer_grid)
     for peer_offset in peer_offsets:
         asymm_pull_seq_to_heads_pcie_kernel[grid](
             peer_ptrs,
@@ -354,8 +355,10 @@ def asymm_push_heads_to_seq_pcie_kernel(
     BLOCK_WORDS: tl.constexpr,
 ):
     """Pre-Hopper PCIe push: explicit coalesced 64-bit streaming copies."""
-    peer_axis = tl.program_id(0)
-    linear_tile = tl.program_id(1)
+    # Tiles go on grid axis 0 (up to 2^31-1 blocks); axis 1 is capped at 65535,
+    # which long sequences exceed, so it only carries the (small) peer index.
+    linear_tile = tl.program_id(0)
+    peer_axis = tl.program_id(1)
 
     peer = (peer_axis + RANK + PEER_OFFSET) % WORLD
     tiles_per_batch = H_LOCAL * TILES_PER_HEAD
@@ -409,7 +412,7 @@ def _asymm_push_heads_to_seq_pcie(
     peer_mode = pcie_peer_mode(world_size)
     peer_offsets = range(1, world_size + 1) if peer_mode == "serial" else (1,)
     peer_grid = 1 if peer_mode == "serial" else world_size
-    grid = (peer_grid, b * h_local * tiles_per_head)
+    grid = (b * h_local * tiles_per_head, peer_grid)
     for peer_offset in peer_offsets:
         asymm_push_heads_to_seq_pcie_kernel[grid](
             peer_ptrs,

@@ -12,7 +12,10 @@ sequence length 111600, head dimension 128, bfloat16.
   (`maskgen_aware_cost_720p_120req_121actual.json`, mask/attention R^2 =
   0.982/0.997) and the samples it was fitted on.
 - `replay/`: per-rank (`*_rank*.csv`), per-head (`*_density.csv`), and
-  per-query-chunk (`*_qchunk.csv`) breakdowns for each configuration.
+  per-query-chunk (`*_qchunk.csv`) breakdowns for each configuration. The
+  `head_start`/`head_end` columns of the per-rank files describe contiguous
+  placements only; for the unequal placements, `*_density.csv` lists each
+  rank's heads.
 - `SHA256SUMS`: checksums of all files above.
 
 ## Mapping to Table 3

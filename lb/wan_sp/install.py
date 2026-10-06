@@ -90,7 +90,7 @@ def install_wan_sp(
 
     # 3. Build the per-layer head plans.
     if ctx.online_schedule:
-        # Paper-faithful bootstrap (design.tex): step 0 uses a deterministic
+        # Bootstrap as in the paper (Section 3.2): step 0 uses a deterministic
         # STATIC placement, NOT an offline density profile. This avoids requiring
         # an offline trace and avoids leaking future-timestep density into the
         # plan; from step 1 on, the causal one-step-lag scheduler re-plans from

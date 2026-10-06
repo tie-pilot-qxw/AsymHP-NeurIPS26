@@ -53,7 +53,7 @@ def parse_args():
     p.add_argument("--flow_shift", type=float, default=5.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output_file", type=str, default="result/sp/output.mp4")
-    p.add_argument("--save_latents", type=str, default=None, help="Optional .pt path to save final latents (for correctness diff).")
+    p.add_argument("--save_latents", type=str, default=None, help="Optional .npy path for the decoded video frames (float32 in [0,1]; see lb/video_psnr.py).")
 
     # SP / load balancing
     p.add_argument("--balance", type=str, default="contiguous",
@@ -154,8 +154,7 @@ def main():
         print(args.prompt)
 
     # Pre-encode the prompt and free the (~11 GB) text encoder before the run.
-    # This shrinks each rank's footprint to ~the transformer+VAE, so a rank can
-    # coexist with a large third-party neighbor on a shared GPU without OOM.
+    # This shrinks each rank's footprint to roughly the transformer and VAE.
     import gc
     with torch.no_grad():
         prompt_embeds, negative_prompt_embeds = pipe.encode_prompt(
@@ -330,7 +329,8 @@ def report_timing(ctx: SPContext, e2e: float, args):
                "a2a_in_calls": ctx.timing.per_call("a2a_in"),
                "a2a_out_calls": ctx.timing.per_call("a2a_out"),
                # asymm-path per-call regions (AsymHP: layout exchange=pull, redistribution=push,
-               # plus barriers=sync); metric C for asymm = copy+pre_bar+pull_k+pull_bar+attn+push_k+push_bar
+               # plus barriers=sync); metric C for asymm = copy+pre_bar+pull_k+attn+push_k+push_bar
+               # (there is no separate post-pull barrier, so pull_barrier stays empty)
                "copy_calls": ctx.timing.per_call("copy"),
                "pre_barrier_calls": ctx.timing.per_call("pre_barrier"),
                "pull_kernel_calls": ctx.timing.per_call("pull_kernel"),

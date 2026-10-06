@@ -4,9 +4,14 @@ Trace-driven analysis, in the same spirit as the paper's whole-head granularity
 study: no new GPU run, we replay the recorded per-head density trace through the
 planner and score the resulting placements under the fitted cost model.
 
-Three quantities, for each pair of adjacent denoising steps of each layer:
+Each trace row is one invocation of a layer; with classifier-free guidance a
+denoising step runs every layer twice, so adjacent invocations alternate between
+the two guidance branches and consecutive steps. The runtime re-plans from the
+previous invocation of the same layer, and so does this analysis.
 
-  1. how often the cost-optimal placement actually CHANGES between adjacent steps
+Three quantities, for each pair of adjacent invocations of each layer:
+
+  1. how often the cost-optimal placement actually CHANGES between them
      (if it never changed, a static placement would suffice);
   2. what AsymHP's one-step-lag predictor costs: score the placement built from
      step t-1's density against step t's realized cost, relative to the placement
@@ -95,8 +100,8 @@ def main():
     p99 = lambda v: v[int(0.99 * len(v))]  # noqa: E731
 
     print(f"720p trace, seq_len={SEQ_LEN}, W={WORLD}, "
-          f"{total} adjacent step pairs over {len(log)} layers\n")
-    print(f"  optimal placement differs between adjacent steps: "
+          f"{total} adjacent invocation pairs over {len(log)} layers\n")
+    print(f"  optimal placement differs between adjacent invocations: "
           f"{changed / total * 100:.1f}% of invocations\n")
     print("  aggregate makespan summed over the whole trajectory:")
     print(f"    current-step density (oracle) : {sum_best:9.1f} ms   1.0000x")

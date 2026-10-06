@@ -69,7 +69,7 @@ def wan_sp_dit_forward(
 
     s_full = post_patch_num_frames * post_patch_height * post_patch_width
     # asymm TMA needs s_local a multiple of 128; pad the sequence to match
-    # (SAP block-sparse masks the zero pad, so the trimmed output is preserved).
+    # (the pad is trimmed before local attention and dropped after the gather).
     from .context import sp_asymm_s_local
     s_pad = s_full
     if world > 1 and ctx.a2a_backend == "asymm":

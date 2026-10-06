@@ -15,8 +15,8 @@ import torch
 import torch.distributed as dist
 
 
-os.environ.setdefault("FLASHINFER_WORKSPACE_BASE", "/tmp")
-os.environ.setdefault("TRITON_CACHE_DIR", "/tmp/triton-cache")
+os.environ.setdefault("FLASHINFER_WORKSPACE_BASE", f"/tmp/flashinfer-{os.getuid()}")
+os.environ.setdefault("TRITON_CACHE_DIR", f"/tmp/triton-cache-{os.getuid()}")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -1662,8 +1662,13 @@ def run_iteration(local: Dict, args: argparse.Namespace, rank: int, world_size: 
 
     metrics = {
         "rank": rank,
+        # head_start/head_end describe contiguous placements only; "heads" lists
+        # the actual (possibly non-contiguous) assignment, e.g. "0;6;7".
         "head_start": local["head_start"],
         "head_end": local["head_end"],
+        "heads": ";".join(
+            str(h) for h in (local.get("assigned_heads") or range(local["head_start"], local["head_end"]))
+        ),
         "seq_start": local["seq_start"],
         "seq_end": local["seq_end"],
         "all2all_in_ms": all2all_in_ms,
@@ -1724,6 +1729,7 @@ def summarize_rank_metrics(rows: List[Dict]) -> List[Dict]:
             "rank": rank,
             "head_start": rank_rows[0]["head_start"],
             "head_end": rank_rows[0]["head_end"],
+            "heads": rank_rows[0].get("heads", ""),
             "seq_start": rank_rows[0]["seq_start"],
             "seq_end": rank_rows[0]["seq_end"],
             "iters": len(rank_rows),
@@ -1812,7 +1818,7 @@ def print_rank_summary(rows: List[Dict]):
     for row in rows:
         print(
             f"{row['rank']:>4} "
-            f"{row['head_start']:>2}-{row['head_end'] - 1:<5} "
+            f"{row.get('heads', ''):<10} "
             f"{row['seq_start']:>6}-{row['seq_end'] - 1:<6} "
             f"{row['all2all_in_ms_mean']:>7.2f} "
             f"{row['mask_ms_mean']:>8.2f} "
@@ -1881,7 +1887,7 @@ def main():
         "--density-log. 'greedy_unequal' drops the equal-heads constraint; pads shorter "
         "ranks by duplicating a real head so the symmetric all2all still works. 'split' "
         "uses greedy_unequal placement plus one post-permutation Q-row split of the "
-        "bottleneck rank's heaviest head over a helper set (NCCL p2p, C2 path); requires "
+        "bottleneck rank's heaviest head over a helper set (NCCL p2p); requires "
         "--asymm-a2a pull_qkv and --cost-model-json.",
     )
     parser.add_argument(
@@ -1985,7 +1991,7 @@ def main():
         "--s-block",
         type=int,
         default=0,
-        help="Kernel S_BLOCK. 0 = auto (largest divisor of S_local that is <=128).",
+        help="Kernel S_BLOCK. 0 = auto (largest power of 2 that is <= min(128, S_local)).",
     )
     parser.add_argument("--profile-dir", default=None, help="Directory for per-rank torch profiler Chrome traces.")
     parser.add_argument("--profile-memory", action="store_true")

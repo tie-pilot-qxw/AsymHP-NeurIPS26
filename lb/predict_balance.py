@@ -15,7 +15,10 @@ script). Without --cost-model-json, falls back to using density directly
 as a relative cost — split is then disabled.
 
 Caveats: cost only models mask + attention. Real per-rank totals also
-include a2a_in / a2a_out / inv_perm; those are NOT predicted here.
+include a2a_in / a2a_out / inv_perm; those are NOT predicted here. Loads also
+exclude the fixed per-rank intercept (``rank_intercept`` in split_planner.py),
+as in the paper's whole-head granularity simulation, so predicted speedups are
+higher than when the intercept is added to every active rank.
 """
 from __future__ import annotations
 

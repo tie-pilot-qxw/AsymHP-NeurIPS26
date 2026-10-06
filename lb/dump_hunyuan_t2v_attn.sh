@@ -12,8 +12,8 @@
 #     RESOLUTION=720p NUM_FRAMES=129 bash lb/dump_hunyuan_t2v_attn.sh
 #
 # Knobs (env vars, all optional):
-#     NUM_FRAMES   — frames in generated video. Default 129. Hunyuan expects 4n+1
-#                    (e.g. 65, 97, 129); pick accordingly.
+#     NUM_FRAMES   — requested frames. Default 129. The paper uses 120 at 720p
+#                    (30 latent frames, sequence length 108256).
 #     LAYER        — attention layer to dump. Default 21.
 #     STEP         — denoising step (0-indexed) to dump. Default 20.
 #                    With first_times_fp=0.04 + --zero_step_kmeans_init, SAP
@@ -28,7 +28,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 NUM_FRAMES="${NUM_FRAMES:-129}"
-LAYER="${LAYER:-30}"
+LAYER="${LAYER:-21}"
 STEP="${STEP:-20}"
 RESOLUTION="${RESOLUTION:-480p}"
 PROMPT_ID="${PROMPT_ID:-7}"

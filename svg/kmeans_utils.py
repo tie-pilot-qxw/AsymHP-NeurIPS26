@@ -697,7 +697,7 @@ def batch_kmeans_Euclid(x, n_clusters, max_iters=100, tol=1e-4, init_centroids=N
             initial centroids are drawn from a generator seeded by row_seeds[b],
             so the init is INVARIANT to how rows (heads) are distributed across
             ranks. This makes the whole sparse pipeline deterministic AND
-            placement-invariant (AsymHP output == baseline output bit-for-bit),
+            placement-invariant (AsymHP builds the same masks as the baseline),
             instead of order-dependent global-RNG init.
     Returns:
         cluster_ids: (B, N) LongTensor, cluster assignment for each point.

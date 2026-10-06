@@ -96,20 +96,25 @@ def load_run(log_path: Path, dump_path: Path) -> dict:
     }
 
 
-def collect(root: Path, tag: str) -> list[dict]:
-    runs = []
-    for log_path in sorted(root.glob(f"{tag}_r*.log")):
+def collect(root: Path, tag: str) -> dict[int, dict]:
+    """Complete runs of one execution, keyed by repetition number."""
+    runs = {}
+    for log_path in root.glob(f"{tag}_r*.log"):
+        match = re.fullmatch(rf"{tag}_r(\d+)\.log", log_path.name)
         dump_path = log_path.with_suffix(".json")
-        if dump_path.exists():
-            runs.append(load_run(log_path, dump_path))
-    if not runs:
-        raise ValueError(f"no complete {tag} runs under {root}")
+        if match and dump_path.exists():
+            runs[int(match.group(1))] = load_run(log_path, dump_path)
     return runs
 
 
 def main() -> None:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "result/paper/e2e_wan13b_720p_120f_w4")
-    runs = {tag: collect(root, tag) for tag in ("baseline", "asymhp")}
+    by_rep = {tag: collect(root, tag) for tag in ("baseline", "asymhp")}
+    # Pair baseline and AsymHP by repetition; drop reps missing either side.
+    reps = sorted(set(by_rep["baseline"]) & set(by_rep["asymhp"]))
+    if not reps:
+        raise ValueError(f"no repetition with both baseline and asymhp runs under {root}")
+    runs = {tag: [by_rep[tag][r] for r in reps] for tag in by_rep}
     pattern = runs["baseline"][0]["pattern"]
 
     print("# End-to-end summary")

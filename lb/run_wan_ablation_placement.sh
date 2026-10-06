@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Placement-policy ablation (paper Table 1).
-# All rows reuse the same SVG2 sparse-attention kernels — only head placement changes.
+# All rows reuse the same SVG2 sparse-attention kernels and the same asymmetric
+# exchange (--asymm-a2a pull_qkv) -- only head placement changes.
 #
-#   1. Default SVG2          : --balance contiguous
+#   1. Contiguous equal-head : --balance contiguous
 #   2. Equal-head shuffle    : --balance greedy            (prev density, density-as-cost)
 #   3. Density-only variant  : --balance greedy_unequal    (prev density, density-as-cost)
 #   4. AsymHP                : --balance greedy_unequal    + --cost-model-json (prev density)
 #   5. Oracle AsymHP         : --balance greedy_unequal    + --cost-model-json + --oracle-density (current density)
 #
-# Output: per-config CSVs under /tmp/ and a final makespan + speedup table.
+# Output: per-config CSVs under $LOG_DIR/bench/ and a final makespan + speedup table.
 #
 # Usage:
 #   bash lb/run_wan_ablation_placement.sh                    # uses GPUs 0..5
@@ -34,6 +35,9 @@ FIRST_TIMES_FP=0.2; FIRST_LAYERS_FP=0.03
 
 OUT_DIR="$REPO_ROOT/result/wan/t2v/sap_1.3b"
 LOG_DIR="${OUT_DIR}/Step_${NUM_INFERENCE_STEPS}-Res_${RESOLUTION}/TFP_${FIRST_TIMES_FP}-LFP_${FIRST_LAYERS_FP}/QC_${QC}-KC_${KC}-TopP_${TOP_P}/Init_${KM_INIT}-Step_${KM_STEP}-MinR_${MIN_KC_RATIO}_${NUM_FRAMES}frames"
+CSV_DIR="${CSV_DIR:-${LOG_DIR}/bench}"  # per-rank CSVs
+mkdir -p "$CSV_DIR"
+export CSV_DIR
 DUMP_DIR="${LOG_DIR}/attn_dumps"
 INPUT="${INPUT:-${DUMP_DIR}/${PROMPT_ID}-0_step${STEP}_layer${LAYER}.pt}"
 DENSITY="${DENSITY:-${LOG_DIR}/${PROMPT_ID}-0.jsonl}"
@@ -82,34 +86,35 @@ echo "[run] dens  -> $DENSITY"
 echo "[run] cost  -> $COST"
 echo
 
-echo "=== 1/5 contiguous (Default SVG2 baseline) ==="
-torchrun --nproc-per-node="$NPROC" --master-port=29810 "$SCRIPT" \
-  "${COMMON[@]}" --balance contiguous \
-  --rank-csv /tmp/${TAG}_1_contiguous.csv 2>&1
+run_row() {   # $1 csv name  $2 port  $3.. bench args
+  local name="$1" port="$2"; shift 2
+  local csv="${CSV_DIR}/${TAG}_${name}.csv"
+  rm -f "$csv"
+  # The bench may abort in the CUDASymmetricMemory destructor after writing its
+  # CSV, so only a missing CSV counts as a failure; later configs still run.
+  torchrun --nproc-per-node="$NPROC" --master-port="$port" "$SCRIPT" \
+    "${COMMON[@]}" "$@" --rank-csv "$csv" 2>&1 || true
+  [[ -s "$csv" ]] || echo "[ERR] $name produced no CSV"
+}
+
+echo "=== 1/5 contiguous equal-head (baseline) ==="
+run_row 1_contiguous 29810 --balance contiguous
 
 echo
 echo "=== 2/5 greedy + density-as-cost (Equal-head shuffle) ==="
-torchrun --nproc-per-node="$NPROC" --master-port=29811 "$SCRIPT" \
-  "${COMMON[@]}" --balance greedy \
-  --rank-csv /tmp/${TAG}_2_equal_shuffle.csv 2>&1
+run_row 2_equal_shuffle 29811 --balance greedy
 
 echo
 echo "=== 3/5 greedy_unequal + density-as-cost (Density-only variant) ==="
-torchrun --nproc-per-node="$NPROC" --master-port=29812 "$SCRIPT" \
-  "${COMMON[@]}" --balance greedy_unequal \
-  --rank-csv /tmp/${TAG}_3_density_only.csv 2>&1
+run_row 3_density_only 29812 --balance greedy_unequal
 
 echo
 echo "=== 4/5 greedy_unequal + cost model (AsymHP, prev density) ==="
-torchrun --nproc-per-node="$NPROC" --master-port=29813 "$SCRIPT" \
-  "${COMMON[@]}" --balance greedy_unequal --cost-model-json "$COST" \
-  --rank-csv /tmp/${TAG}_4_sys.csv 2>&1
+run_row 4_sys 29813 --balance greedy_unequal --cost-model-json "$COST"
 
 echo
 echo "=== 5/5 greedy_unequal + cost model + oracle (Oracle AsymHP, current density) ==="
-torchrun --nproc-per-node="$NPROC" --master-port=29814 "$SCRIPT" \
-  "${COMMON[@]}" --balance greedy_unequal --cost-model-json "$COST" --oracle-density \
-  --rank-csv /tmp/${TAG}_5_oracle.csv 2>&1
+run_row 5_oracle 29814 --balance greedy_unequal --cost-model-json "$COST" --oracle-density
 
 echo
 echo "=== summary (makespan = max per-rank total_ms_mean; speedup vs baseline = contiguous) ==="
@@ -118,11 +123,11 @@ import csv, os
 import sys
 tag = sys.argv[1]
 configs = [
-    ("1. Default SVG2 (contiguous)",       f"/tmp/{tag}_1_contiguous.csv"),
-    ("2. Equal-head shuffle",              f"/tmp/{tag}_2_equal_shuffle.csv"),
-    ("3. Density-only variant",            f"/tmp/{tag}_3_density_only.csv"),
-    ("4. AsymHP",                           f"/tmp/{tag}_4_sys.csv"),
-    ("5. Oracle AsymHP",                    f"/tmp/{tag}_5_oracle.csv"),
+    ("1. Contiguous equal-head",          f"{os.environ['CSV_DIR']}/{tag}_1_contiguous.csv"),
+    ("2. Equal-head shuffle",              f"{os.environ['CSV_DIR']}/{tag}_2_equal_shuffle.csv"),
+    ("3. Density-only variant",            f"{os.environ['CSV_DIR']}/{tag}_3_density_only.csv"),
+    ("4. AsymHP",                           f"{os.environ['CSV_DIR']}/{tag}_4_sys.csv"),
+    ("5. Oracle AsymHP",                    f"{os.environ['CSV_DIR']}/{tag}_5_oracle.csv"),
 ]
 baseline = None
 print(f"{'config':35s}  {'makespan_ms':>12s}  {'speedup_vs_baseline':>20s}  per-rank")

@@ -32,8 +32,8 @@ WORKLOADS = [
     ("Wan14B-720p (W=4)", ROOT / "data/traces/wan2.1-14b_720p_125f.jsonl", "wan14b", 115200, 4, 1),
     ("Wan1.3B-253f (W=4)", ROOT / "data/traces/wan2.1-1.3b_480p_253f.jsonl", "wan1.3b", 99840, 4, 1),
     # HunyuanVideo as the workload, planned with the Wan fits. 24 heads, seq 108256.
-    ("HunyuanVideo-120f (W=4)", ROOT / "data/traces/hunyuanvideo_480p_120f.jsonl", "hyvideo", 108256, 4, 1),
-    ("HunyuanVideo-120f (W=8)", ROOT / "data/traces/hunyuanvideo_480p_120f.jsonl", "hyvideo", 108256, 8, 1),
+    ("HunyuanVideo-120f (W=4)", ROOT / "data/traces/hunyuanvideo_720p_120f.jsonl", "hyvideo", 108256, 4, 1),
+    ("HunyuanVideo-120f (W=8)", ROOT / "data/traces/hunyuanvideo_720p_120f.jsonl", "hyvideo", 108256, 8, 1),
 ]
 
 def contig(nheads, W):

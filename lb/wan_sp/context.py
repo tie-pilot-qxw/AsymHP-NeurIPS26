@@ -1,7 +1,7 @@
 """Global sequence-parallel (SP) runtime context for Wan T2V.
 
 Holds the torchrun/NCCL state, the per-layer head-placement plans, the
-all2all backend (symmetric NCCL now, asymmetric TMA pull/push later), and
+all2all backend (symmetric NCCL or asymmetric symmetric-memory pull/push), and
 timing accumulators used to report the load-balancing effect end-to-end.
 
 This is the E2E sibling of ``lb/bench_sp_all2all_attention.py``: the bench
@@ -198,7 +198,7 @@ class SPContext:
     a2a_backend: str = "symm"  # "symm" | "asymm"
     plans: Dict[int, LayerPlan] = field(default_factory=dict)
     timing: SPTiming = field(default_factory=SPTiming)
-    # asymm-a2a state (set up in M3)
+    # asymm-a2a state (set up by setup_asymm)
     symm: Optional[object] = None
     num_sms: Optional[int] = None
     # online causal scheduler (set up by install_wan_sp when online=True)
@@ -310,9 +310,7 @@ class SPContext:
                 )
             idx = h_idxs
             if local_density is not None:
-                # Slice to the real head count: on the symmetric path local_density
-                # has max_hpr (padded, duplicated) rows while h_idxs holds only the
-                # real assigned heads -> take the first idx.numel() rows.
+                # Defensive: keep exactly one density row per assigned head.
                 ld = local_density.detach().to(torch.float32).reshape(-1)[: idx.numel()]
                 dens.index_copy_(0, idx, ld)
             else:
@@ -476,10 +474,10 @@ class SPContext:
 def sp_asymm_s_local(seq_len: int, world: int, align: int = 128) -> int:
     """Padded per-rank sequence length for the asymm TMA path.
 
-    The pull/push kernels tile the S dim by a power-of-2 block (<=128), so
+    The pull/push kernels tile the S dim by a power-of-2 block (128 or 256), so
     s_local must be a multiple of ``align``. When seq_len/world isn't, we pad
-    the sequence upstream (forward.py) and trim after the gather; SAP's
-    block-sparse mask drops the zero-padding tokens so the result is preserved.
+    the sequence upstream (forward.py); the pad is trimmed before local
+    attention and dropped after the gather, so the result is preserved.
     """
     # Round UP seq_len over (world*align): s_local must satisfy
     # s_local % align == 0 AND s_local*world >= seq_len. Doing `seq_len // world`

@@ -156,8 +156,7 @@ class WanAttn_SP_Processor(WanAttn_SAPAttn_Processor):
         ctx.sched_group (the dedicated scheduler comm) on ctx._sched_stream, the
         same stream as the density all-reduce, so the two never issue concurrent
         collectives on the same communicator."""
-        # Slice to the real head count: on the symmetric path the centroids have
-        # max_hpr (padded) rows while my_heads holds only the real assigned heads.
+        # Defensive: keep exactly one centroid row per assigned head.
         n_real = head_idx.numel()
         qc, kc = self.q_centroids[:n_real].detach(), self.k_centroids[:n_real].detach()
         H = ctx.sched["num_heads"]

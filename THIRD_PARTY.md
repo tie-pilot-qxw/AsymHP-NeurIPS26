@@ -16,9 +16,14 @@ drivers (`*_inference.py`), `scripts/`, and `examples/` come from it:
   Attention via Semantic-Aware Permutation* (NeurIPS 2025).
 
 We use the SVG2 semantic-aware-permutation backend as the local sparse method.
-Our changes to upstream files add Q/K/V and density export, per-head k-means
-seeding that is independent of head placement, and more portable kernel
-build settings.
+Our changes to upstream files:
+
+- `svg/models/wan/attention.py`: per-head k-means seeding that is independent
+  of head placement, a SpargeAttn local backend, and Q/K/V export hooks;
+- `svg/models/hyvideo/attention.py`, `svg/models/*/inference.py`,
+  `wan_t2v_inference.py`, `hyvideo_t2v_inference.py`: Q/K/V and density export;
+- `svg/kmeans_utils.py`: optional per-row seeds for k-means initialization;
+- `svg/kernels/CMakeLists.txt`, `svg/kernels/setup.sh`: portable build settings.
 
 ## Model implementations
 
@@ -47,5 +52,6 @@ per-head valid-block counts; SpargeAttn itself is not vendored.
 
 ## AsymHP
 
-`lb/` and `wan_t2v_sp_inference.py` are original to this work and are released
-under the Apache License 2.0.
+`lb/`, `wan_t2v_sp_inference.py`, `svg/maskgen_export.py`, and
+`scripts/wan/export_attn_heatmaps.py` are original to this work and are
+released under the Apache License 2.0.

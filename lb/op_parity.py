@@ -88,7 +88,12 @@ def parity_metrics(reference, candidate):
     return max_abs, relative_l2, psnr
 
 def main():
-    d = tempfile.mkdtemp(prefix="parity_")
+    # Per-rank output dumps are large; remove them when the comparison is done.
+    with tempfile.TemporaryDirectory(prefix="parity_") as d:
+        _main(d)
+
+
+def _main(d):
     # (label, balance, a2a)
     configs = [
         ("contiguous + SYMMETRIC (Ulysses baseline)", "contiguous", "off"),

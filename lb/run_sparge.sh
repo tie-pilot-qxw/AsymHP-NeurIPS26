@@ -28,10 +28,12 @@ mkdir -p "$OUT"
 
 for CDF in 0.6 0.7 0.8 0.9; do
   echo "===== CDF=$CDF (calibrated and planned on its own density) ====="
+  rm -f "$OUT/cost_cdf${CDF}.json" "$OUT/op_cdf${CDF}.json"
   CUDA_VISIBLE_DEVICES="$G0" python lb/profile_sparge_cost.py \
     --input "$SNAP" --output "$OUT/cost_cdf${CDF}.json" \
     --simthreshd1 0.3 --cdfthreshd "$CDF" --pvthreshd 50 \
     >"$OUT/prof_${CDF}.log" 2>&1
+  [[ -s "$OUT/cost_cdf${CDF}.json" ]] || { echo "  calibration FAILED (see $OUT/prof_${CDF}.log)"; continue; }
   CUDA_VISIBLE_DEVICES="$GPUS" timeout 900 torchrun --nproc-per-node=4 \
     --master-port=$((42000 + RANDOM % 400)) \
     lb/bench_sparge_operator.py \
@@ -39,6 +41,7 @@ for CDF in 0.6 0.7 0.8 0.9; do
     --output "$OUT/op_cdf${CDF}.json" \
     --simthreshd1 0.3 --cdfthreshd "$CDF" --pvthreshd 50 \
     --warmup 20 --iters 50 >"$OUT/bench_${CDF}.log" 2>&1
-  python3 lb/sparge_report.py "$OUT/op_cdf${CDF}.json" 2>/dev/null || echo "  (no result)"
+  [[ -s "$OUT/op_cdf${CDF}.json" ]] || { echo "  replay FAILED (see $OUT/bench_${CDF}.log)"; continue; }
+  python3 lb/sparge_report.py "$OUT/op_cdf${CDF}.json"
 done
 echo SPARGE_DONE

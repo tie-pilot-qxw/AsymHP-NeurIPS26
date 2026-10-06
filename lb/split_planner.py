@@ -204,6 +204,13 @@ def plan_with_splits(
     q_granularity: int = 1,
     min_improvement_ms: float = 0.5,
 ) -> SplitPlan:
+    """Whole-head LPT placement plus optional Q-row splits of bottleneck heads.
+
+    Loads, makespans, and speedups here are slope-only: they exclude the fixed
+    per-rank intercept (``rank_intercept``), as in the paper's whole-head
+    granularity simulation. Add the intercept to every active rank to compare
+    absolute times.
+    """
     if max_splits_per_plan < 0:
         raise ValueError(f"max_splits_per_plan must be >= 0, got {max_splits_per_plan}")
     # Multi-split policy (naive): each rank is at most one of {owner, helper,
@@ -629,7 +636,7 @@ def format_planned_table(plan: SplitPlan, cost_mask: List[float]) -> str:
 
 def main():
     p = argparse.ArgumentParser(
-        description="Split-planner v0 — predict speedup of post-permutation Q-split.",
+        description="Split planner: predict the speedup of a post-permutation Q-split.",
     )
     p.add_argument("--density-log", required=True)
     p.add_argument("--cost-model-json", required=True)

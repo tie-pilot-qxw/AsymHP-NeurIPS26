@@ -27,6 +27,7 @@ mkdir -p "$OUT"
 
 run() {   # $1 output prefix  $2 prompt  $3.. extra args
   local pref="$1" prompt="$2"; shift 2
+  rm -f "${pref}.npy"
   CUDA_VISIBLE_DEVICES="$GPUS" torchrun --nproc-per-node=4 \
     --master-port=$((44000 + RANDOM % 500)) wan_t2v_sp_inference.py \
     $BASE --prompt "$prompt" "$@" \

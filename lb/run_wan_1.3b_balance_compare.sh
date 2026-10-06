@@ -46,6 +46,9 @@ FIRST_TIMES_FP=0.2; FIRST_LAYERS_FP=0.03
 
 OUT_DIR="result/wan/t2v/sap_1.3b"
 LOG_DIR="${OUT_DIR}/Step_${NUM_INFERENCE_STEPS}-Res_${RESOLUTION}/TFP_${FIRST_TIMES_FP}-LFP_${FIRST_LAYERS_FP}/QC_${QC}-KC_${KC}-TopP_${TOP_P}/Init_${KM_INIT}-Step_${KM_STEP}-MinR_${MIN_KC_RATIO}_${NUM_FRAMES}frames"
+CSV_DIR="${CSV_DIR:-${LOG_DIR}/bench}"  # per-rank CSVs
+mkdir -p "$CSV_DIR"
+export CSV_DIR
 DUMP_DIR="${LOG_DIR}/attn_dumps"
 INPUT="${INPUT:-${DUMP_DIR}/${PROMPT_ID}-0_step${STEP}_layer${LAYER}.pt}"
 DENSITY="${DENSITY:-${LOG_DIR}/${PROMPT_ID}-0.jsonl}"
@@ -84,6 +87,14 @@ else
   CONFIGS_TO_RUN="baseline,symm,asym_cost"
 fi
 
+# Contiguous and equal-count placement need num_heads % W == 0; AsymHP
+# (greedy_unequal + asymmetric exchange) also runs non-divisible configs.
+NUM_HEADS="${NUM_HEADS:-12}"
+if (( NUM_HEADS % EFFECTIVE_W != 0 )); then
+  echo "[run] heads=$NUM_HEADS not divisible by effective_W=$EFFECTIVE_W; running asym_cost only"
+  CONFIGS_TO_RUN="asym_cost"
+fi
+
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(seq -s, 0 $((REAL_W - 1)))}"
 
 COMMON=(
@@ -107,9 +118,14 @@ run_cfg() {
   fi
   echo
   echo "=== $name ==="
+  local csv="${CSV_DIR}/${TAG}_${name}.csv"
+  rm -f "$csv"
+  # The bench may abort in the CUDASymmetricMemory destructor after writing its
+  # CSV, so only a missing CSV counts as a failure; later configs still run.
   torchrun --nproc-per-node="$REAL_W" --master-port="$2" "$SCRIPT" \
     "${COMMON[@]}" "${SIM_FLAGS[@]}" "${@:3}" \
-    --rank-csv /tmp/${TAG}_${name}.csv 2>&1
+    --rank-csv "$csv" 2>&1 || true
+  [[ -s "$csv" ]] || echo "[ERR] $name produced no CSV"
 }
 
 run_cfg baseline      _ 29800 --balance contiguous
@@ -131,7 +147,7 @@ configs = sys.argv[2].split(",")
 labels = {"baseline": "baseline", "symm": "symm", "asym_cost": "asym+cost"}
 baseline = None
 for cfg in configs:
-    path = f"/tmp/{tag}_{cfg}.csv"
+    path = f"{os.environ['CSV_DIR']}/{tag}_{cfg}.csv"
     label = labels.get(cfg, cfg)
     if not os.path.exists(path):
         print(f"{label:14s} <missing csv>"); continue

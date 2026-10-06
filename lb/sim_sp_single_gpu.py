@@ -24,8 +24,8 @@ from typing import Dict, List
 import torch
 
 
-os.environ.setdefault("FLASHINFER_WORKSPACE_BASE", "/tmp")
-os.environ.setdefault("TRITON_CACHE_DIR", "/tmp/triton-cache")
+os.environ.setdefault("FLASHINFER_WORKSPACE_BASE", f"/tmp/flashinfer-{os.getuid()}")
+os.environ.setdefault("TRITON_CACHE_DIR", f"/tmp/triton-cache-{os.getuid()}")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -91,6 +91,7 @@ def ensure_cost_model_cache(args: argparse.Namespace, device: torch.device) -> P
         warmup=args.profile_warmup,
         iters=args.profile_iters,
         q_chunks=args.q_chunks,
+        trim_pct=0.2,  # same default as profile_maskgen_aware_cost.py --trim-pct
     )
     rows = []
     q_chunk_rows = []

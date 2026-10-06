@@ -25,6 +25,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from symm_a2a import SymmAsymA2A
 
+# Checks that failed on any rank; every rank records the same entries.
+_FAILURES: list[str] = []
+
+
+def _record(ok: bool, label: str, device) -> bool:
+    """All-reduce a pass flag across ranks; return True only if every rank passed."""
+    flag = torch.tensor([1 if ok else 0], device=device, dtype=torch.int32)
+    dist.all_reduce(flag, op=dist.ReduceOp.MIN)
+    all_ok = bool(flag.item())
+    if not all_ok:
+        _FAILURES.append(label)
+    return all_ok
+
 
 def _encode(rank: int, head: int, seq: int, H_TOTAL: int, S_LOCAL: int) -> int:
     """Unique integer encoding so we can tell mis-wired pulls apart. Fits in
@@ -86,9 +99,12 @@ def _run_case(
         diff = (out.float() - expected.float()).abs()
         max_diff = float(diff.max().item())
         ok = max_diff < 0.5
+        all_ok = _record(ok, f"{case_name} | {name}", out.device)
         if rank == 0:
             tag = f"[{case_name} | {name}] rank={rank} h_idxs={head_assignment[rank]}"
-            if ok:
+            if ok and not all_ok:
+                print(f"FAIL [{case_name} | {name}] on a rank other than 0")
+            elif ok:
                 print(f"PASS {tag}  max_diff={max_diff}")
             else:
                 idx = diff.argmax()
@@ -229,9 +245,12 @@ def _run_reverse_case(
     diff = (out.float() - expected.float()).abs()
     max_diff = float(diff.max().item())
     ok = max_diff < 0.5
+    all_ok = _record(ok, f"{case_name} | reverse-push", out.device)
     if rank == 0:
         tag = f"[{case_name} | reverse-push] rank={rank} h_idxs={head_assignment[rank]}"
-        if ok:
+        if ok and not all_ok:
+            print(f"FAIL [{case_name} | reverse-push] on a rank other than 0")
+        elif ok:
             print(f"PASS {tag}  max_diff={max_diff}")
         else:
             off = int(diff.argmax().item())
@@ -362,8 +381,13 @@ def main():
 
     dist.barrier()
     if rank == 0:
-        print("\nAll cases complete.")
+        if _FAILURES:
+            print(f"\n{len(_FAILURES)} check(s) FAILED: " + "; ".join(_FAILURES))
+        else:
+            print("\nAll cases passed.")
     dist.destroy_process_group()
+    if _FAILURES:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

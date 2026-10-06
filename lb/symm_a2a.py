@@ -17,9 +17,11 @@ Two-GPU N-rank simulation (`sim_world` / `sim_rank`):
   throughput is roughly (sim_world-1)x slower than the real configuration.
   Latency / SM scheduling / sync surface area stay accurate.
 
-Sync model for both directions: pre-barrier → kernel → post-barrier (each
-defaulted to True for drop-in correctness; bench disables them and inserts a
-single per-iter barrier when running the low-sync path).
+Sync model: the pull defaults to a barrier before and after the kernel; the
+push defaults to a barrier after the kernel only. Some barrier must separate a
+consumer's read of `recv_symm` from the next push into it; in the end-to-end
+path the next layer's pre-pull barrier provides it. The bench disables the
+per-call barriers and inserts its own when running the low-sync path.
 """
 
 from __future__ import annotations
@@ -267,10 +269,11 @@ class SymmAsymA2A:
         responsible for padding each per-peer S segment to `s_local_padded`
         (the kernel reads `S_LOCAL = s_local_padded` per-peer slabs).
 
-        Default sync model is `pre_barrier=False, post_barrier=True` — push
-        only needs *one* barrier after the launch to publish writes; pre-sync
-        is unnecessary because the dst buffer was barriered by the previous
-        iter's post_barrier (or by the caller's setup barrier on iter 0).
+        Default sync model is `pre_barrier=False, post_barrier=True`: one
+        barrier after the launch publishes the writes. The caller must ensure a
+        barrier separates every consumer's read of the previous contents of
+        `recv_symm` from this push (in the end-to-end path, the next layer's
+        pre-pull barrier does).
         """
         if self.recv_symm is None:
             raise RuntimeError(

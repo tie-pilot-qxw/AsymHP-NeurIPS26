@@ -30,6 +30,9 @@ FIRST_LAYERS_FP=0.03
 
 OUT_DIR="result/wan/t2v/sap_14b"
 LOG_DIR="${OUT_DIR}/Step_${NUM_INFERENCE_STEPS}-Res_${RESOLUTION}/TFP_${FIRST_TIMES_FP}-LFP_${FIRST_LAYERS_FP}/QC_${QC}-KC_${KC}-TopP_${TOP_P}/Init_${KM_INIT}-Step_${KM_STEP}-MinR_${MIN_KC_RATIO}_${NUM_FRAMES}frames"
+CSV_DIR="${CSV_DIR:-${LOG_DIR}/bench}"  # per-rank CSVs
+mkdir -p "$CSV_DIR"
+export CSV_DIR
 DUMP_DIR="${LOG_DIR}/attn_dumps"
 INPUT="${INPUT:-${DUMP_DIR}/${PROMPT_ID}-0_step${STEP}_layer${LAYER}.pt}"
 DENSITY="${DENSITY:-${LOG_DIR}/${PROMPT_ID}-0.jsonl}"
@@ -117,9 +120,14 @@ run_cfg() {
 
   echo
   echo "=== $name ==="
+  local csv="${CSV_DIR}/${TAG}_${name}.csv"
+  rm -f "$csv"
+  # The bench may abort in the CUDASymmetricMemory destructor after writing its
+  # CSV, so only a missing CSV counts as a failure; later configs still run.
   torchrun --nproc-per-node="$REAL_W" --master-port="$port" "$SCRIPT" \
     "${COMMON[@]}" "${SIM_FLAGS[@]}" "$@" \
-    --rank-csv "/tmp/${TAG}_${name}.csv" 2>&1
+    --rank-csv "$csv" 2>&1 || true
+  [[ -s "$csv" ]] || echo "[ERR] $name produced no CSV"
 }
 
 run_cfg baseline  29810 --balance contiguous
@@ -155,7 +163,7 @@ baseline = None
 baseline_label = None
 
 for cfg in configs:
-    path = f"/tmp/{tag}_{cfg}.csv"
+    path = f"{os.environ['CSV_DIR']}/{tag}_{cfg}.csv"
     label = labels.get(cfg, cfg)
 
     if not os.path.exists(path):
