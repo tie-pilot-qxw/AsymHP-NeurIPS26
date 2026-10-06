@@ -1,7 +1,7 @@
 # AsymHP: Load-Balanced Sparse Attention for Video Diffusion Transformers
 
-Code for the NeurIPS 2026 paper *AsymHP: Load-Balanced Sparse Attention for
-Video Diffusion Transformers*.
+Code for the NeurIPS 2026 paper
+[*AsymHP: Load-Balanced Sparse Attention for Video Diffusion Transformers*](https://openreview.net/forum?id=XyeAckrYOC).
 
 Dynamic sparse attention (top-p or threshold rules) retains very different
 numbers of blocks per attention head, so equal-head parallel execution leaves
@@ -164,12 +164,13 @@ torchrun --nproc_per_node=2 lb/test_symmetric_memory_basic.py
 
 ```bibtex
 @inproceedings{qiang2026asymhp,
-  title     = {AsymHP: Load-Balanced Sparse Attention for Video Diffusion Transformers},
+  title     = {Asym{HP}: Load-Balanced Sparse Attention for Video Diffusion Transformers},
   author    = {Qiang, Xinwei and Guan, Yue and Zhu, Ruihan and Jagtap, Mihir and
                Pan, Zaifeng and Yu, Zhongkai and Chen, Chang and Hu, Zhengding and
                Ding, Yufei and Aziz, Adnan},
-  booktitle = {Advances in Neural Information Processing Systems},
-  year      = {2026}
+  booktitle = {The Fortieth Annual Conference on Neural Information Processing Systems},
+  year      = {2026},
+  url       = {https://openreview.net/forum?id=XyeAckrYOC}
 }
 ```
 
