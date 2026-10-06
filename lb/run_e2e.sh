@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end generation latency and critical-path breakdown (paper Table 2,
-# Appendix Table 3).
+# End-to-end generation latency and critical-path breakdown (paper Table 2
+# and the appendix critical-path breakdown).
 #
 # Workload: Wan2.1-1.3B, 720p, 120 requested frames (Wan rounds to 121 actual
 # frames, N=111600), 50 denoising steps, SVG2 (SAP) top-p=0.9, four GPUs.

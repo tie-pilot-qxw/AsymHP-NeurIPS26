@@ -81,14 +81,14 @@ are used by default; `lb/profile_cost.sh` refits them.
 ### GPU-free analyses
 
 ```bash
-python lb/analyze_cost_sensitivity.py   # Appendix Table 9: coefficient-error penalty
-python lb/analyze_cost_portability.py   # Appendix D.2: HunyuanVideo planned with Wan fits
-python lb/analyze_plan_stability.py     # Appendix D.3: per-step re-planning vs fixed placement
+python lb/analyze_cost_sensitivity.py   # appendix: coefficient-error sensitivity
+python lb/analyze_cost_portability.py   # appendix: HunyuanVideo planned with Wan fits
+python lb/analyze_plan_stability.py     # appendix: per-step re-planning vs fixed placement
 ```
 
 `lb/predict_balance.py` plans a recorded trace with every placement policy,
 including the split-head simulation used for the whole-head granularity study
-(Appendix E).
+(whole-head granularity analysis in the appendix).
 
 ### Sparse-attention region (Figures 5 and 6(a), Table 1)
 
@@ -113,7 +113,7 @@ RESOLUTION=720p NUM_FRAMES=240 NPROC=4 ITERS=20 WARMUP=5 bash lb/run_wan_ablatio
 The Wan2.1-14B and HunyuanVideo dumps use `lb/dump_wan_14b_attn.sh` and
 `lb/dump_hunyuan_t2v_attn.sh` with the same variables.
 
-### End-to-end generation (Table 2, Appendix Table 3)
+### End-to-end generation (Table 2 and the appendix critical-path breakdown)
 
 ```bash
 GPUS=0,1,2,3 bash lb/run_e2e.sh
@@ -132,14 +132,14 @@ RESOLUTION=720p NUM_FRAMES=125 FIRST_TIMES_FP=0 FIRST_LAYERS_FP=0 bash lb/dump_w
 
 GPUS=0,1,2,3 bash lb/run_sparge.sh        # Figure 6(b): SpargeAttn, CDF 0.6-0.9
 GPUS=0,1,2 bash lb/run_topp_dumps.sh      # density traces for top-p 0.7/0.8/0.95
-GPUS=0,1,2,3 bash lb/run_topp_sweep.sh    # Appendix Table 7
+GPUS=0,1,2,3 bash lb/run_topp_sweep.sh    # appendix: measured sparsity sweep
 ```
 
-The PCIe study (Appendix Table 4) runs `lb/bench_sp_all2all_attention.py` on
+The PCIe study (Table 3) runs `lb/bench_sp_all2all_attention.py` on
 the 120-frame snapshot on four L40S GPUs; the measured per-rank breakdowns are
 in `artifacts/l40s_w4_wan21_13b_720p_121f/`.
 
-### Numerical agreement (Appendix Tables 5 and 6)
+### Numerical agreement (appendix)
 
 ```bash
 # operator level, on the 120-frame snapshot

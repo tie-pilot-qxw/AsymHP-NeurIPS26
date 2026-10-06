@@ -1,4 +1,4 @@
-"""Cost-model portability (paper Appendix D.2): how much does placement degrade
+"""Cost-model portability (paper appendix, cost-model calibration and mismatch): how much does placement degrade
 when a workload is planned with another model's fitted coefficients, e.g. the
 Wan2.1-1.3B fit on HunyuanVideo?
 

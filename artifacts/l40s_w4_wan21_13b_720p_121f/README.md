@@ -1,4 +1,4 @@
-# PCIe-only replay on four L40S GPUs (paper Appendix Table 4)
+# PCIe-only replay on four L40S GPUs (paper Table 3)
 
 Measured evidence from a four-GPU L40S host whose GPUs are connected only
 through PCIe Gen4 x16 (no NVLink). The replayed workload is Wan2.1-1.3B T2V,
@@ -15,12 +15,12 @@ sequence length 111600, head dimension 128, bfloat16.
   per-query-chunk (`*_qchunk.csv`) breakdowns for each configuration.
 - `SHA256SUMS`: checksums of all files above.
 
-## Mapping to Table 4
+## Mapping to Table 3
 
 The region latency is the maximum over ranks of `total_ms_mean` (mean over 50
 measured iterations) in the `*_rank*.csv` files.
 
-| Table 4 row | File | Region (ms) |
+| Table 3 row | File | Region (ms) |
 |---|---|---:|
 | Contiguous equal-head + NCCL | `replay/contiguous_nccl_rank.csv` | 63.42 |
 | Cost-aware unequal + padded NCCL | `replay/cost_unequal_padded_nccl_rank.csv` | 56.84 |

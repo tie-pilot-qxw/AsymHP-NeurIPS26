@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PSNR between two decoded videos (paper Appendix Table 6).
+"""PSNR between two decoded videos (paper appendix, decoded-video table).
 
 Inputs are the arrays written by ``wan_t2v_sp_inference.py --save_latents``:
 post-VAE frames of shape [frames, height, width, 3], float32 in [0, 1].

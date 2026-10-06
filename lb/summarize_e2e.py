@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Summarize end-to-end latency, the sparse-region fraction, and the AsymHP
-critical-path breakdown (paper Table 2 and Appendix Table 3).
+critical-path breakdown (paper Table 2 and the appendix critical-path breakdown).
 
 Usage: python lb/summarize_e2e.py <run-dir written by lb/run_e2e.sh>
 """

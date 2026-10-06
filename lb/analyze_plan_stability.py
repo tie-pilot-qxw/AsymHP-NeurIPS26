@@ -1,4 +1,4 @@
-"""Does the placement need to be updated over time? (paper Appendix D.3)
+"""Does the placement need to be updated over time? (paper appendix, "Why Update Placement Across Steps?")
 
 Trace-driven analysis, in the same spirit as the paper's whole-head granularity
 study: no new GPU run, we replay the recorded per-head density trace through the

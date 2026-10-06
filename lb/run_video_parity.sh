@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Decoded-video agreement with a baseline repeatability control (paper
-# Appendix Table 6).
+# appendix, decoded-video table).
 #
 # For each prompt, generate the equal-head baseline twice (the second run is the
 # run-to-run control) and AsymHP once, then report PSNR against the first

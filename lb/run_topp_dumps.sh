@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Per-setting density traces for the SVG2 sparsity sweep (paper Appendix D.1).
+# Per-setting density traces for the SVG2 sparsity sweep (paper appendix, measured sparsity sweep).
 #
 # AsymHP plans each top-p setting from that setting's own previous-step
 # density, so each top-p needs its own trace. Single GPU per setting, 720p,

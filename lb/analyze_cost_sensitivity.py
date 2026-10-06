@@ -1,4 +1,4 @@
-"""Cost-model sensitivity (paper Appendix Table 9): how much does placement
+"""Cost-model sensitivity (paper appendix, coefficient-sensitivity table): how much does placement
 degrade when the fitted coefficients are wrong?
 
 Mechanism this probes

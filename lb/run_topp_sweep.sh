@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SVG2 sparsity sweep with per-setting planning (paper Appendix D.1, Table 7).
+# SVG2 sparsity sweep with per-setting planning (paper appendix, measured sparsity sweep).
 #
 # Replays the same 720p/125-frame snapshot (layer 21, step 20) while varying
 # only top-p; each setting is planned from its own density trace (produced by

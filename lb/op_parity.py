@@ -1,5 +1,5 @@
 """Operator-level output agreement between AsymHP and the symmetric Ulysses
-baseline (paper Appendix Table 5).
+baseline (paper appendix, operator-agreement table).
 
 The baseline is the real symmetric path (contiguous placement + NCCL
 all_to_all, `--asymm-a2a off`); the test is AsymHP (greedy_unequal + the
